@@ -8,7 +8,11 @@ public enum Flag {
     EXPLOSION_BLOCK_DAMAGE("explosion-block-damage"),
     BLOCK_PLACE("block-place"),
     BLOCK_BREAK("block-break"),
-    KEEP_INVENTORY("keep-inventory");
+    KEEP_INVENTORY("keep-inventory"),
+    MOB_SPAWNING("mob-spawning"),
+    ITEM_DROP("item-drop"),
+    ITEM_PICKUP("item-pickup"),
+    ENDERPEARL("enderpearl");
 
     private final String key;
 

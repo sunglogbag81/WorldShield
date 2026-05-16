@@ -19,9 +19,9 @@ public final class Region {
     private final int maxZ;
     private int priority;
     private final Map<Flag, Boolean> flags = new EnumMap<>(Flag.class);
-    private boolean titleEnabled;
-    private String title = "";
-    private String subtitle = "";
+    private boolean titleEnabled = true;
+    private String title = "&c결투장에 입장했습니다.";
+    private String subtitle = "&7이 구역은 PVP가 허용되며, 인벤세이브가 적용됩니다.";
     private int fadeIn = 10;
     private int stay = 40;
     private int fadeOut = 10;

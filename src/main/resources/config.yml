@@ -5,5 +5,9 @@ global:
   block-place: true
   block-break: true
   keep-inventory: false
+  mob-spawning: true
+  item-drop: true
+  item-pickup: true
+  enderpearl: true
 messages:
   prefix: '&6[WorldShield]&r '

@@ -14,6 +14,10 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
   - `block-place`
   - `block-break`
   - `keep-inventory`
+  - `mob-spawning`
+  - `item-drop`
+  - `item-pickup`
+  - `enderpearl`
 
 ## Commands
 
@@ -54,10 +58,14 @@ flags:
   block-place: false
   block-break: false
   keep-inventory: true
+  mob-spawning: false
+  item-drop: false
+  item-pickup: false
+  enderpearl: false
 title:
   enabled: true
-  title: '&aSpawn'
-  subtitle: '&7Welcome!'
+  title: '&c결투장에 입장했습니다.'
+  subtitle: '&7이 구역은 PVP가 허용되며, 인벤세이브가 적용됩니다.'
   fade-in: 10
   stay: 40
   fade-out: 10
