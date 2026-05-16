@@ -26,13 +26,21 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.configuration.file.YamlConfiguration;
 
+import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -45,10 +53,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class WorldShieldPlugin extends JavaPlugin implements Listener, TabExecutor {
+    private static final String GUI_TITLE_PREFIX = ChatColor.DARK_GREEN + "WorldShield ";
     private final LegacyComponentSerializer legacy = LegacyComponentSerializer.legacyAmpersand();
     private final Map<UUID, Selection> selections = new HashMap<>();
     private final Map<UUID, String> currentRegion = new HashMap<>();
     private final Map<UUID, Long> lastCombatDamage = new HashMap<>();
+    private final Map<UUID, String> lastDeathRegion = new HashMap<>();
+    private final Map<UUID, String> logoutRegions = new HashMap<>();
+    private final Map<UUID, String> openFlagGuis = new HashMap<>();
     private final Map<Flag, Boolean> globalFlags = new EnumMap<>(Flag.class);
     private RegionManager regionManager;
     private String prefix;
@@ -72,6 +84,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         globalFlags.put(Flag.KEEP_INVENTORY, getConfig().getBoolean("global." + Flag.KEEP_INVENTORY.key(), false));
         regionManager = new RegionManager(getDataFolder());
         regionManager.load();
+        loadLogoutRegions();
     }
 
     private boolean allowed(Location location, Flag flag) {
@@ -157,11 +170,43 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onDeath(PlayerDeathEvent event) {
-        if (!allowed(event.getEntity().getLocation(), Flag.KEEP_INVENTORY)) return;
+        Player player = event.getEntity();
+        regionManager.highestRegion(player.getLocation())
+                .filter(Region::hasSpawn)
+                .ifPresent(region -> lastDeathRegion.put(player.getUniqueId(), regionKey(region)));
+        if (!allowed(player.getLocation(), Flag.KEEP_INVENTORY)) return;
         event.setKeepInventory(true);
         event.getDrops().clear();
         event.setKeepLevel(true);
         event.setDroppedExp(0);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onRespawn(PlayerRespawnEvent event) {
+        String key = lastDeathRegion.remove(event.getPlayer().getUniqueId());
+        if (key == null) return;
+        regionFromKey(key).flatMap(this::spawnOf).ifPresent(event::setRespawnLocation);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        Optional<Region> region = regionManager.highestRegion(player.getLocation()).filter(Region::hasSpawn);
+        if (region.isPresent()) {
+            logoutRegions.put(player.getUniqueId(), regionKey(region.get()));
+        } else {
+            logoutRegions.remove(player.getUniqueId());
+        }
+        saveLogoutRegions();
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        String key = logoutRegions.remove(event.getPlayer().getUniqueId());
+        if (key == null) return;
+        saveLogoutRegions();
+        Bukkit.getScheduler().runTask(this, () -> regionFromKey(key).flatMap(this::spawnOf)
+                .ifPresent(location -> event.getPlayer().teleport(location)));
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -198,6 +243,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args[0].equalsIgnoreCase("wand")) return giveWand(sender);
         if (args[0].equalsIgnoreCase("pos1") || args[0].equalsIgnoreCase("pos2")) return setPos(sender, args[0]);
         if (args[0].equalsIgnoreCase("region")) return regionCommand(sender, args);
+        if (args[0].equalsIgnoreCase("gui")) return guiCommand(sender, args);
         if (args[0].equalsIgnoreCase("flag")) return flagCommand(sender, args);
         if (args[0].equalsIgnoreCase("title")) return titleCommand(sender, args);
         if (args[0].equalsIgnoreCase("combat")) return combatCommand(sender, args);
@@ -209,6 +255,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         msg(sender, "/ws region create <name> - 선택 영역으로 구역 생성");
         msg(sender, "/ws region delete <name> - 현재 월드 구역 삭제");
         msg(sender, "/ws region list [world] - 구역 목록");
+        msg(sender, "/ws region setspawn <name> [world] - 현재 위치를 해당 구역 사망/재접속 스폰으로 설정");
+        msg(sender, "/ws gui <global|region> [world] - 전체/구역 플래그 GUI");
         msg(sender, "/ws flag global <flag> <true|false> - 전체 월드 설정");
         msg(sender, "/ws flag region <name> <flag> <true|false|unset> [world] - 구역 설정");
         msg(sender, "/ws title <name> <title|subtitle> <text...> [--world <world>] - 입장 타이틀 설정");
@@ -264,6 +312,26 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             msg(sender, world + " 구역: " + (names.isEmpty() ? "없음" : String.join(", ", names)));
             return true;
         }
+        if (args[1].equalsIgnoreCase("setspawn") && args.length >= 3 && sender instanceof Player player) {
+            if (args.length >= 4) world = args[3];
+            Optional<Region> region = regionManager.get(world, args[2]);
+            if (region.isEmpty()) {
+                msg(sender, ChatColor.RED + "구역을 찾지 못했습니다.");
+                return true;
+            }
+            if (!region.get().contains(player.getLocation())) {
+                msg(sender, ChatColor.RED + "해당 구역 안에서 setspawn을 실행하세요.");
+                return true;
+            }
+            region.get().setSpawn(player.getLocation());
+            try {
+                regionManager.save(region.get());
+                msg(sender, "구역 스폰 설정 완료: " + region.get().name());
+            } catch (IOException e) {
+                msg(sender, ChatColor.RED + "저장 실패: " + e.getMessage());
+            }
+            return true;
+        }
         if (args[1].equalsIgnoreCase("info") && args.length >= 3) {
             if (args.length >= 4) world = args[3];
             Optional<Region> region = regionManager.get(world, args[2]);
@@ -271,6 +339,23 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             return true;
         }
         return help(sender);
+    }
+
+    private boolean guiCommand(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) return true;
+        if (args.length < 2) return help(sender);
+        if (args[1].equalsIgnoreCase("global")) {
+            openFlagGui(player, "global");
+            return true;
+        }
+        String world = args.length >= 3 ? args[2] : player.getWorld().getName();
+        Optional<Region> region = regionManager.get(world, args[1]);
+        if (region.isEmpty()) {
+            msg(sender, ChatColor.RED + "구역을 찾지 못했습니다.");
+            return true;
+        }
+        openFlagGui(player, regionKey(region.get()));
+        return true;
     }
 
     private boolean flagCommand(CommandSender sender, String[] args) {
@@ -358,10 +443,40 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return true;
     }
 
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        String target = openFlagGuis.get(player.getUniqueId());
+        if (target == null || !event.getView().getTitle().startsWith(GUI_TITLE_PREFIX)) return;
+        event.setCancelled(true);
+        if (event.getClickedInventory() == null || event.getSlot() < 0 || event.getSlot() >= Flag.values().length) return;
+        Flag flag = Flag.values()[event.getSlot()];
+        if (target.equals("global")) {
+            boolean value = !globalFlags.getOrDefault(flag, true);
+            globalFlags.put(flag, value);
+            getConfig().set("global." + flag.key(), value);
+            saveConfig();
+        } else {
+            Optional<Region> region = regionFromKey(target);
+            if (region.isEmpty()) return;
+            Boolean current = region.get().flags().get(flag);
+            Boolean next = event.isRightClick() ? null : current == null ? true : !current;
+            region.get().setFlag(flag, next);
+            try {
+                regionManager.save(region.get());
+            } catch (IOException e) {
+                msg(player, ChatColor.RED + "저장 실패: " + e.getMessage());
+                return;
+            }
+        }
+        openFlagGui(player, target);
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) return List.of("help", "wand", "pos1", "pos2", "region", "flag", "title", "combat", "reload");
-        if (args.length == 2 && args[0].equalsIgnoreCase("region")) return List.of("create", "delete", "list", "info");
+        if (args.length == 1) return List.of("help", "wand", "pos1", "pos2", "region", "gui", "flag", "title", "combat", "reload");
+        if (args.length == 2 && args[0].equalsIgnoreCase("region")) return List.of("create", "delete", "list", "info", "setspawn");
+        if (args.length == 2 && args[0].equalsIgnoreCase("gui")) return sender instanceof Player player ? regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList() : List.of("global");
         if (args.length == 2 && args[0].equalsIgnoreCase("flag")) return List.of("global", "region");
         if ((args.length == 3 && args[1].equalsIgnoreCase("global")) || (args.length == 4 && args[1].equalsIgnoreCase("region"))) {
             return Arrays.stream(Flag.values()).map(Flag::key).toList();
@@ -375,6 +490,34 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     private boolean invalidFlag(CommandSender sender) {
         msg(sender, ChatColor.RED + "알 수 없는 플래그. 사용 가능: " + String.join(", ", Arrays.stream(Flag.values()).map(Flag::key).toList()));
         return true;
+    }
+
+    private void openFlagGui(Player player, String target) {
+        Inventory inventory = Bukkit.createInventory(null, 9, GUI_TITLE_PREFIX + target);
+        for (int i = 0; i < Flag.values().length; i++) {
+            Flag flag = Flag.values()[i];
+            Boolean value = target.equals("global") ? globalFlags.getOrDefault(flag, true) : regionFromKey(target).map(region -> region.flags().get(flag)).orElse(null);
+            inventory.setItem(i, flagItem(flag, value));
+        }
+        openFlagGuis.put(player.getUniqueId(), target);
+        player.openInventory(inventory);
+    }
+
+    private ItemStack flagItem(Flag flag, Boolean value) {
+        Material material = value == null ? Material.GRAY_DYE : value ? Material.LIME_DYE : Material.RED_DYE;
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GOLD + flag.key() + ChatColor.GRAY + " = " + flagValueText(value));
+            meta.setLore(List.of(ChatColor.GRAY + "좌클릭: ON/OFF 전환", ChatColor.GRAY + "우클릭: 구역값 unset(전체 설정 상속)"));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private String flagValueText(Boolean value) {
+        if (value == null) return ChatColor.GRAY + "unset";
+        return value ? ChatColor.GREEN + "ON" : ChatColor.RED + "OFF";
     }
 
     private boolean isBlockedByCombatExitDelay(Player player, Optional<Region> fromRegion, Optional<Region> toRegion) {
@@ -391,6 +534,49 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         long remainingSeconds = Math.max(1, (remainingMillis + 999) / 1000);
         msg(player, ChatColor.RED + "전투 중에는 결투장을 나갈 수 없습니다. " + remainingSeconds + "초 후 다시 시도하세요.");
         return true;
+    }
+
+    private Optional<Region> regionFromKey(String key) {
+        String[] parts = key.split(":", 2);
+        if (parts.length != 2) return Optional.empty();
+        return regionManager.get(parts[0], parts[1]);
+    }
+
+    private String regionKey(Region region) {
+        return region.world() + ":" + region.name();
+    }
+
+    private Optional<Location> spawnOf(Region region) {
+        World world = Bukkit.getWorld(region.world());
+        if (world == null || !region.hasSpawn()) return Optional.empty();
+        return Optional.of(region.spawnLocation(world));
+    }
+
+    private File logoutFile() {
+        return new File(getDataFolder(), "logout-regions.yml");
+    }
+
+    private void loadLogoutRegions() {
+        logoutRegions.clear();
+        File file = logoutFile();
+        if (!file.exists()) return;
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        for (String uuid : yaml.getKeys(false)) {
+            try {
+                logoutRegions.put(UUID.fromString(uuid), yaml.getString(uuid));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+    }
+
+    private void saveLogoutRegions() {
+        YamlConfiguration yaml = new YamlConfiguration();
+        logoutRegions.forEach((uuid, region) -> yaml.set(uuid.toString(), region));
+        try {
+            yaml.save(logoutFile());
+        } catch (IOException e) {
+            getLogger().warning("Failed to save logout regions: " + e.getMessage());
+        }
     }
 
     private Player asPlayer(Entity entity) {

@@ -26,6 +26,11 @@ public final class Region {
     private int stay = 40;
     private int fadeOut = 10;
     private int combatExitDelaySeconds = 0;
+    private Double spawnX;
+    private Double spawnY;
+    private Double spawnZ;
+    private Float spawnYaw;
+    private Float spawnPitch;
 
     public Region(String name, String world, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
         this.name = name.toLowerCase();
@@ -49,6 +54,20 @@ public final class Region {
     public int stay() { return stay; }
     public int fadeOut() { return fadeOut; }
     public int combatExitDelaySeconds() { return combatExitDelaySeconds; }
+    public boolean hasSpawn() { return spawnX != null && spawnY != null && spawnZ != null; }
+
+    public Location spawnLocation(org.bukkit.World bukkitWorld) {
+        if (!hasSpawn()) return null;
+        return new Location(bukkitWorld, spawnX, spawnY, spawnZ, spawnYaw == null ? 0f : spawnYaw, spawnPitch == null ? 0f : spawnPitch);
+    }
+
+    public void setSpawn(Location location) {
+        this.spawnX = location.getX();
+        this.spawnY = location.getY();
+        this.spawnZ = location.getZ();
+        this.spawnYaw = location.getYaw();
+        this.spawnPitch = location.getPitch();
+    }
 
     public void setCombatExitDelaySeconds(int seconds) {
         this.combatExitDelaySeconds = Math.max(0, seconds);
@@ -89,6 +108,11 @@ public final class Region {
         yaml.set("title.stay", stay);
         yaml.set("title.fade-out", fadeOut);
         yaml.set("combat.exit-delay-seconds", combatExitDelaySeconds);
+        yaml.set("spawn.x", spawnX);
+        yaml.set("spawn.y", spawnY);
+        yaml.set("spawn.z", spawnZ);
+        yaml.set("spawn.yaw", spawnYaw);
+        yaml.set("spawn.pitch", spawnPitch);
         yaml.save(file);
     }
 
@@ -112,6 +136,13 @@ public final class Region {
         region.stay = yaml.getInt("title.stay", 40);
         region.fadeOut = yaml.getInt("title.fade-out", 10);
         region.combatExitDelaySeconds = yaml.getInt("combat.exit-delay-seconds", 0);
+        if (yaml.contains("spawn.x") && yaml.contains("spawn.y") && yaml.contains("spawn.z")) {
+            region.spawnX = yaml.getDouble("spawn.x");
+            region.spawnY = yaml.getDouble("spawn.y");
+            region.spawnZ = yaml.getDouble("spawn.z");
+            region.spawnYaw = (float) yaml.getDouble("spawn.yaw", 0);
+            region.spawnPitch = (float) yaml.getDouble("spawn.pitch", 0);
+        }
         return region;
     }
 }
