@@ -1,0 +1,9 @@
+# Global flags apply to every world, including overworld, nether and end.
+global:
+  pvp: true
+  explosion-block-damage: true
+  block-place: true
+  block-break: true
+  keep-inventory: false
+messages:
+  prefix: '&6[WorldShield]&r '

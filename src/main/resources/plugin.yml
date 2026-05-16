@@ -1,0 +1,15 @@
+name: WorldShield
+version: '1.0.0'
+main: com.sunglogbag81.worldshield.WorldShieldPlugin
+api-version: '1.21'
+author: sunglogbag81
+description: Simple global and region protection plugin.
+commands:
+  worldshield:
+    aliases: [ws]
+    description: Manage WorldShield regions and flags.
+    usage: /<command> help
+permissions:
+  worldshield.admin:
+    description: Allows managing WorldShield.
+    default: op
