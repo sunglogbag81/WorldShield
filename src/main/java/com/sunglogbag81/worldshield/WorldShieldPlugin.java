@@ -48,6 +48,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     private final LegacyComponentSerializer legacy = LegacyComponentSerializer.legacyAmpersand();
     private final Map<UUID, Selection> selections = new HashMap<>();
     private final Map<UUID, String> currentRegion = new HashMap<>();
+    private final Map<UUID, Long> lastCombatDamage = new HashMap<>();
     private final Map<Flag, Boolean> globalFlags = new EnumMap<>(Flag.class);
     private RegionManager regionManager;
     private String prefix;
@@ -100,7 +101,13 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         Player victim = asPlayer(event.getEntity());
         Player attacker = asPlayer(event.getDamager());
         if (victim == null || attacker == null) return;
-        if (!allowed(victim.getLocation(), Flag.PVP)) event.setCancelled(true);
+        if (!allowed(victim.getLocation(), Flag.PVP)) {
+            event.setCancelled(true);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        lastCombatDamage.put(victim.getUniqueId(), now);
+        lastCombatDamage.put(attacker.getUniqueId(), now);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -161,7 +168,13 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     public void onMove(PlayerMoveEvent event) {
         if (event.getTo() == null || sameBlock(event.getFrom(), event.getTo())) return;
         Player player = event.getPlayer();
-        Optional<Region> region = regionManager.highestRegion(event.getTo());
+        Optional<Region> fromRegion = regionManager.highestRegion(event.getFrom());
+        Optional<Region> toRegion = regionManager.highestRegion(event.getTo());
+        if (isBlockedByCombatExitDelay(player, fromRegion, toRegion)) {
+            event.setCancelled(true);
+            return;
+        }
+        Optional<Region> region = toRegion;
         String key = region.map(value -> value.world() + ":" + value.name()).orElse("");
         if (key.equals(currentRegion.get(player.getUniqueId()))) return;
         currentRegion.put(player.getUniqueId(), key);
@@ -187,6 +200,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args[0].equalsIgnoreCase("region")) return regionCommand(sender, args);
         if (args[0].equalsIgnoreCase("flag")) return flagCommand(sender, args);
         if (args[0].equalsIgnoreCase("title")) return titleCommand(sender, args);
+        if (args[0].equalsIgnoreCase("combat")) return combatCommand(sender, args);
         return help(sender);
     }
 
@@ -198,6 +212,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         msg(sender, "/ws flag global <flag> <true|false> - 전체 월드 설정");
         msg(sender, "/ws flag region <name> <flag> <true|false|unset> [world] - 구역 설정");
         msg(sender, "/ws title <name> <title|subtitle> <text...> [--world <world>] - 입장 타이틀 설정");
+        msg(sender, "/ws combat <name> exit-delay <seconds> [world] - 전투 후 구역 이탈 제한 시간 설정");
         return true;
     }
 
@@ -318,9 +333,34 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return true;
     }
 
+    private boolean combatCommand(CommandSender sender, String[] args) {
+        if (args.length < 4 || !args[2].equalsIgnoreCase("exit-delay")) return help(sender);
+        String world = args.length >= 5 ? args[4] : sender instanceof Player player ? player.getWorld().getName() : Bukkit.getWorlds().get(0).getName();
+        Optional<Region> region = regionManager.get(world, args[1]);
+        if (region.isEmpty()) {
+            msg(sender, ChatColor.RED + "구역을 찾지 못했습니다.");
+            return true;
+        }
+        int seconds;
+        try {
+            seconds = Math.max(0, Integer.parseInt(args[3]));
+        } catch (NumberFormatException e) {
+            msg(sender, ChatColor.RED + "초 단위 숫자를 입력하세요.");
+            return true;
+        }
+        region.get().setCombatExitDelaySeconds(seconds);
+        try {
+            regionManager.save(region.get());
+            msg(sender, "전투 후 이탈 제한 시간이 " + seconds + "초로 설정되었습니다.");
+        } catch (IOException e) {
+            msg(sender, ChatColor.RED + "저장 실패: " + e.getMessage());
+        }
+        return true;
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) return List.of("help", "wand", "pos1", "pos2", "region", "flag", "title", "reload");
+        if (args.length == 1) return List.of("help", "wand", "pos1", "pos2", "region", "flag", "title", "combat", "reload");
         if (args.length == 2 && args[0].equalsIgnoreCase("region")) return List.of("create", "delete", "list", "info");
         if (args.length == 2 && args[0].equalsIgnoreCase("flag")) return List.of("global", "region");
         if ((args.length == 3 && args[1].equalsIgnoreCase("global")) || (args.length == 4 && args[1].equalsIgnoreCase("region"))) {
@@ -328,11 +368,28 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("title")) return sender instanceof Player player ? regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList() : List.of();
         if (args.length == 3 && args[0].equalsIgnoreCase("title")) return List.of("title", "subtitle");
+        if (args.length == 3 && args[0].equalsIgnoreCase("combat")) return List.of("exit-delay");
         return List.of();
     }
 
     private boolean invalidFlag(CommandSender sender) {
         msg(sender, ChatColor.RED + "알 수 없는 플래그. 사용 가능: " + String.join(", ", Arrays.stream(Flag.values()).map(Flag::key).toList()));
+        return true;
+    }
+
+    private boolean isBlockedByCombatExitDelay(Player player, Optional<Region> fromRegion, Optional<Region> toRegion) {
+        if (fromRegion.isEmpty()) return false;
+        Region region = fromRegion.get();
+        if (region.combatExitDelaySeconds() <= 0) return false;
+        if (toRegion.isPresent() && toRegion.get().world().equals(region.world()) && toRegion.get().name().equals(region.name())) {
+            return false;
+        }
+        Long lastDamage = lastCombatDamage.get(player.getUniqueId());
+        if (lastDamage == null) return false;
+        long remainingMillis = region.combatExitDelaySeconds() * 1000L - (System.currentTimeMillis() - lastDamage);
+        if (remainingMillis <= 0) return false;
+        long remainingSeconds = Math.max(1, (remainingMillis + 999) / 1000);
+        msg(player, ChatColor.RED + "전투 중에는 결투장을 나갈 수 없습니다. " + remainingSeconds + "초 후 다시 시도하세요.");
         return true;
     }
 

@@ -25,6 +25,7 @@ public final class Region {
     private int fadeIn = 10;
     private int stay = 40;
     private int fadeOut = 10;
+    private int combatExitDelaySeconds = 0;
 
     public Region(String name, String world, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
         this.name = name.toLowerCase();
@@ -47,6 +48,11 @@ public final class Region {
     public int fadeIn() { return fadeIn; }
     public int stay() { return stay; }
     public int fadeOut() { return fadeOut; }
+    public int combatExitDelaySeconds() { return combatExitDelaySeconds; }
+
+    public void setCombatExitDelaySeconds(int seconds) {
+        this.combatExitDelaySeconds = Math.max(0, seconds);
+    }
 
     public void setFlag(Flag flag, Boolean value) {
         if (value == null) flags.remove(flag); else flags.put(flag, value);
@@ -82,6 +88,7 @@ public final class Region {
         yaml.set("title.fade-in", fadeIn);
         yaml.set("title.stay", stay);
         yaml.set("title.fade-out", fadeOut);
+        yaml.set("combat.exit-delay-seconds", combatExitDelaySeconds);
         yaml.save(file);
     }
 
@@ -104,6 +111,7 @@ public final class Region {
         region.fadeIn = yaml.getInt("title.fade-in", 10);
         region.stay = yaml.getInt("title.stay", 40);
         region.fadeOut = yaml.getInt("title.fade-out", 10);
+        region.combatExitDelaySeconds = yaml.getInt("combat.exit-delay-seconds", 0);
         return region;
     }
 }

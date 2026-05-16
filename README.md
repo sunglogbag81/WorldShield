@@ -33,6 +33,7 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
 /ws flag global <flag> <true|false>
 /ws flag region <name> <flag> <true|false|unset> [world]
 /ws title <name> <title|subtitle> <text...> [--world <world>]
+/ws combat <name> exit-delay <seconds> [world]
 /ws reload
 ```
 
@@ -69,4 +70,8 @@ title:
   fade-in: 10
   stay: 40
   fade-out: 10
+combat:
+  exit-delay-seconds: 10
 ```
+
+`combat.exit-delay-seconds`가 0보다 크면 해당 구역 안에서 PVP 데미지를 입거나 준 뒤 지정된 초가 지나야 구역 밖으로 나갈 수 있습니다.
