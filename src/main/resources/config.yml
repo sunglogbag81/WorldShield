@@ -9,5 +9,7 @@ global:
   item-drop: true
   item-pickup: true
   enderpearl: true
+  mob-target: true
+  mob-damage: true
 messages:
   prefix: '&6[WorldShield]&r '

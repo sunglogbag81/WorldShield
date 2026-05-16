@@ -18,6 +18,8 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
   - `item-drop`
   - `item-pickup`
   - `enderpearl`
+  - `mob-target`
+  - `mob-damage`
 
 ## Commands
 
@@ -65,6 +67,8 @@ flags:
   item-drop: false
   item-pickup: false
   enderpearl: false
+  mob-target: false
+  mob-damage: false
 title:
   enabled: true
   title: '&c결투장에 입장했습니다.'

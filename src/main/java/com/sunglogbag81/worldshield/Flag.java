@@ -12,7 +12,9 @@ public enum Flag {
     MOB_SPAWNING("mob-spawning"),
     ITEM_DROP("item-drop"),
     ITEM_PICKUP("item-pickup"),
-    ENDERPEARL("enderpearl");
+    ENDERPEARL("enderpearl"),
+    MOB_TARGET("mob-target"),
+    MOB_DAMAGE("mob-damage");
 
     private final String key;
 

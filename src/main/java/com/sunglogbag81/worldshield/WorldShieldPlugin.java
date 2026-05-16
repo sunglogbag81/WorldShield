@@ -13,6 +13,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -25,6 +26,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -110,17 +112,32 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onPvp(EntityDamageByEntityEvent event) {
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         Player victim = asPlayer(event.getEntity());
         Player attacker = asPlayer(event.getDamager());
-        if (victim == null || attacker == null) return;
-        if (!allowed(victim.getLocation(), Flag.PVP)) {
-            event.setCancelled(true);
+        if (victim == null) return;
+        if (attacker != null) {
+            if (!allowed(victim.getLocation(), Flag.PVP)) {
+                event.setCancelled(true);
+                return;
+            }
+            long now = System.currentTimeMillis();
+            lastCombatDamage.put(victim.getUniqueId(), now);
+            lastCombatDamage.put(attacker.getUniqueId(), now);
             return;
         }
-        long now = System.currentTimeMillis();
-        lastCombatDamage.put(victim.getUniqueId(), now);
-        lastCombatDamage.put(attacker.getUniqueId(), now);
+        if (isMobAttack(event.getDamager()) && !allowed(victim.getLocation(), Flag.MOB_DAMAGE)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onMobTarget(EntityTargetLivingEntityEvent event) {
+        if (!(event.getEntity() instanceof Mob)) return;
+        if (event.getTarget() instanceof Player player && !allowed(player.getLocation(), Flag.MOB_TARGET)) {
+            event.setCancelled(true);
+            event.setTarget(null);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -493,7 +510,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     private void openFlagGui(Player player, String target) {
-        Inventory inventory = Bukkit.createInventory(null, 9, GUI_TITLE_PREFIX + target);
+        Inventory inventory = Bukkit.createInventory(null, 18, GUI_TITLE_PREFIX + target);
         for (int i = 0; i < Flag.values().length; i++) {
             Flag flag = Flag.values()[i];
             Boolean value = target.equals("global") ? globalFlags.getOrDefault(flag, true) : regionFromKey(target).map(region -> region.flags().get(flag)).orElse(null);
@@ -584,6 +601,12 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (entity instanceof org.bukkit.projectiles.ProjectileSource source && source instanceof Player player) return player;
         if (entity instanceof org.bukkit.entity.Projectile projectile && projectile.getShooter() instanceof Player player) return player;
         return null;
+    }
+
+    private boolean isMobAttack(Entity entity) {
+        if (entity instanceof Mob) return true;
+        if (entity instanceof org.bukkit.entity.Projectile projectile && projectile.getShooter() instanceof Mob) return true;
+        return false;
     }
 
     private boolean sameBlock(Location first, Location second) {
