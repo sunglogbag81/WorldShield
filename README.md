@@ -22,6 +22,7 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
   - `mob-damage`
   - `mob-entry`
   - `equipment-durability`
+  - `waterlogging`
 
 ## Commands
 
@@ -39,6 +40,7 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
 /ws flag global <flag> <true|false>
 /ws flag region <name> <flag> <true|false|unset> [world]
 /ws title <name> <title|subtitle> <text...> [--world <world>]
+/ws title <name> spectator <true|false> [world]
 /ws combat <name> exit-delay <seconds> [world]
 /자동차단
 /ws reload
@@ -74,8 +76,10 @@ flags:
   mob-damage: false
   mob-entry: false
   equipment-durability: false
+  waterlogging: false
 title:
   enabled: true
+  spectator: true
   title: '&c결투장에 입장했습니다.'
   subtitle: '&7이 구역은 PVP가 허용되며, 인벤세이브가 적용됩니다.'
   fade-in: 10
@@ -100,7 +104,9 @@ spawn:
 
 `equipment-durability: false`는 해당 위치의 플레이어 장비/도구 내구도 감소를 막습니다.
 
-`block-place`는 일반 블록 설치뿐 아니라 물/용암 설치와 반블럭 같은 waterlogged 블록에 물을 채우는 동작도 막습니다. `block-break`는 일반 블록 파괴뿐 아니라 물/용암을 양동이로 퍼내는 동작과 waterlogged 블록에서 물을 빼는 동작도 막습니다.
+`block-place`는 일반 블록 설치뿐 아니라 물/용암 설치도 막습니다. `block-break`는 일반 블록 파괴뿐 아니라 물/용암을 양동이로 퍼내는 동작도 막습니다. `waterlogging: false`는 반블럭 같은 waterlogged 블록에 물을 채우거나 빼는 동작을 별도로 막습니다.
+
+`/ws title <name> spectator <true|false> [world]`로 관전모드 플레이어가 리전에 들어갈 때 입장 타이틀을 볼지 설정할 수 있습니다.
 
 리전 경계 안팎을 넘는 직접/투사체 데미지는 항상 차단됩니다. 즉 내부에서 외부로, 외부에서 내부로, 서로 다른 리전 사이로 데미지를 줄 수 없습니다.
 

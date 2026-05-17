@@ -13,5 +13,6 @@ global:
   mob-damage: true
   mob-entry: true
   equipment-durability: true
+  waterlogging: true
 messages:
   prefix: '&6[WorldShield]&r '

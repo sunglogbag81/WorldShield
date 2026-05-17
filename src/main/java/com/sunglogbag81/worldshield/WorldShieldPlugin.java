@@ -6,6 +6,7 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -35,7 +36,6 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
-import org.bukkit.event.player.PlayerBucketEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
@@ -231,12 +231,12 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
-        if (bucketAffectsBlockedLocation(event, Flag.BLOCK_PLACE)) event.setCancelled(true);
+        if (bucketEmptyBlocked(event)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBucketFill(PlayerBucketFillEvent event) {
-        if (bucketAffectsBlockedLocation(event, Flag.BLOCK_BREAK)) event.setCancelled(true);
+        if (bucketFillBlocked(event)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -342,7 +342,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         String key = region.map(value -> value.world() + ":" + value.name()).orElse("");
         if (key.equals(currentRegion.get(player.getUniqueId()))) return;
         currentRegion.put(player.getUniqueId(), key);
-        region.filter(Region::titleEnabled).ifPresent(value -> player.showTitle(Title.title(
+        region.filter(value -> value.titleEnabled() && (player.getGameMode() != GameMode.SPECTATOR || value.titleSpectator())).ifPresent(value -> player.showTitle(Title.title(
                 component(value.title()), component(value.subtitle()),
                 Title.Times.times(Duration.ofMillis(value.fadeIn() * 50L), Duration.ofMillis(value.stay() * 50L), Duration.ofMillis(value.fadeOut() * 50L)))));
     }
@@ -381,6 +381,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         msg(sender, "/ws flag global <flag> <true|false> - 전체 월드 설정");
         msg(sender, "/ws flag region <name> <flag> <true|false|unset> [world] - 구역 설정");
         msg(sender, "/ws title <name> <title|subtitle> <text...> [--world <world>] - 입장 타이틀 설정");
+        msg(sender, "/ws title <name> spectator <true|false> [world] - 관전모드 입장 타이틀 표시 설정");
         msg(sender, "/ws combat <name> exit-delay <seconds> [world] - 전투 후 구역 이탈 제한 시간 설정");
         msg(sender, "/자동차단 - 바라보는 앞쪽 화재 근원자를 최근 5분 로그로 찾아 자동 차단");
         return true;
@@ -554,6 +555,9 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args.length < 4) return help(sender);
         String world = sender instanceof Player player ? player.getWorld().getName() : Bukkit.getWorlds().get(0).getName();
         List<String> words = new ArrayList<>(Arrays.asList(args).subList(3, args.length));
+        if (args[2].equalsIgnoreCase("spectator") && args.length >= 5) {
+            world = args[4].equalsIgnoreCase("--world") && args.length >= 6 ? args[5] : args[4];
+        }
         int worldFlag = words.indexOf("--world");
         if (worldFlag >= 0 && words.size() > worldFlag + 1) {
             world = words.get(worldFlag + 1);
@@ -562,6 +566,16 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         Optional<Region> region = regionManager.get(world, args[1]);
         if (region.isEmpty()) {
             msg(sender, ChatColor.RED + "구역을 찾지 못했습니다.");
+            return true;
+        }
+        if (args[2].equalsIgnoreCase("spectator")) {
+            region.get().setTitleSpectator(Boolean.parseBoolean(args[3]));
+            try {
+                regionManager.save(region.get());
+                msg(sender, "관전모드 타이틀 표시 = " + Boolean.parseBoolean(args[3]));
+            } catch (IOException e) {
+                msg(sender, ChatColor.RED + "저장 실패: " + e.getMessage());
+            }
             return true;
         }
         if (!args[2].equalsIgnoreCase("title") && !args[2].equalsIgnoreCase("subtitle")) return help(sender);
@@ -640,7 +654,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             return Arrays.stream(Flag.values()).map(Flag::key).toList();
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("title")) return sender instanceof Player player ? regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList() : List.of();
-        if (args.length == 3 && args[0].equalsIgnoreCase("title")) return List.of("title", "subtitle");
+        if (args.length == 3 && args[0].equalsIgnoreCase("title")) return List.of("title", "subtitle", "spectator");
         if (args.length == 3 && args[0].equalsIgnoreCase("combat")) return List.of("exit-delay");
         return List.of();
     }
@@ -737,27 +751,22 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return material == Material.FIRE || material == Material.SOUL_FIRE;
     }
 
-    private boolean bucketAffectsBlockedLocation(PlayerBucketEvent event, Flag flag) {
-        for (Block block : bucketAffectedBlocks(event)) {
-            if (!allowed(block.getLocation(), flag)) return true;
+    private boolean bucketEmptyBlocked(PlayerBucketEmptyEvent event) {
+        Block clicked = event.getBlockClicked();
+        if (clicked != null && sameBlock(clicked.getLocation(), event.getBlock().getLocation()) && clicked.getBlockData() instanceof Waterlogged) {
+            return !allowed(clicked.getLocation(), Flag.WATERLOGGING);
         }
-        return false;
+        if (clicked == null) return !allowed(event.getBlock().getLocation(), Flag.BLOCK_PLACE);
+        return !allowed(event.getBlock().getLocation(), Flag.BLOCK_PLACE)
+                || !allowed(clicked.getRelative(event.getBlockFace()).getLocation(), Flag.BLOCK_PLACE);
     }
 
-    private Set<Block> bucketAffectedBlocks(PlayerBucketEvent event) {
-        Set<Block> blocks = new HashSet<>();
-        blocks.add(event.getBlock());
-
+    private boolean bucketFillBlocked(PlayerBucketFillEvent event) {
         Block clicked = event.getBlockClicked();
-        if (clicked != null) {
-            if (event instanceof PlayerBucketEmptyEvent) {
-                blocks.add(clicked.getRelative(event.getBlockFace()));
-            }
-            if (clicked.getBlockData() instanceof Waterlogged) {
-                blocks.add(clicked);
-            }
+        if (clicked != null && sameBlock(clicked.getLocation(), event.getBlock().getLocation()) && clicked.getBlockData() instanceof Waterlogged) {
+            return !allowed(clicked.getLocation(), Flag.WATERLOGGING);
         }
-        return blocks;
+        return !allowed(event.getBlock().getLocation(), Flag.BLOCK_BREAK);
     }
 
     private boolean isEnteringBlockedForMob(Location from, Location to) {

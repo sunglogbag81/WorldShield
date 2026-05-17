@@ -20,6 +20,7 @@ public final class Region {
     private int priority;
     private final Map<Flag, Boolean> flags = new EnumMap<>(Flag.class);
     private boolean titleEnabled = true;
+    private boolean titleSpectator = true;
     private String title = "&c결투장에 입장했습니다.";
     private String subtitle = "&7이 구역은 PVP가 허용되며, 인벤세이브가 적용됩니다.";
     private int fadeIn = 10;
@@ -49,6 +50,7 @@ public final class Region {
     public int priority() { return priority; }
     public Map<Flag, Boolean> flags() { return flags; }
     public boolean titleEnabled() { return titleEnabled; }
+    public boolean titleSpectator() { return titleSpectator; }
     public String title() { return title; }
     public String subtitle() { return subtitle; }
     public int fadeIn() { return fadeIn; }
@@ -86,6 +88,10 @@ public final class Region {
         if (part.equalsIgnoreCase("subtitle")) subtitle = text;
     }
 
+    public void setTitleSpectator(boolean value) {
+        titleSpectator = value;
+    }
+
     public boolean contains(Location location) {
         return location.getWorld() != null
                 && world.equals(location.getWorld().getName())
@@ -105,6 +111,7 @@ public final class Region {
             yaml.set("flags." + flag.key(), flags.get(flag));
         }
         yaml.set("title.enabled", titleEnabled);
+        yaml.set("title.spectator", titleSpectator);
         yaml.set("title.title", title);
         yaml.set("title.subtitle", subtitle);
         yaml.set("title.fade-in", fadeIn);
@@ -134,6 +141,7 @@ public final class Region {
             }
         }
         region.titleEnabled = yaml.getBoolean("title.enabled", false);
+        region.titleSpectator = yaml.getBoolean("title.spectator", true);
         region.title = yaml.getString("title.title", "");
         region.subtitle = yaml.getString("title.subtitle", "");
         region.fadeIn = yaml.getInt("title.fade-in", 10);
