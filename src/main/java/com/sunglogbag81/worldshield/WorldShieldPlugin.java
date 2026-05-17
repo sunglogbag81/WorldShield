@@ -114,6 +114,12 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        Entity attackerEntity = damagingEntity(event.getDamager());
+        if (attackerEntity != null && isCrossRegionDamage(attackerEntity.getLocation(), event.getEntity().getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+
         Player victim = asPlayer(event.getEntity());
         Player attacker = asPlayer(event.getDamager());
         if (victim == null) return;
@@ -631,6 +637,19 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         } catch (IOException e) {
             getLogger().warning("Failed to save logout regions: " + e.getMessage());
         }
+    }
+
+    private boolean isCrossRegionDamage(Location attacker, Location victim) {
+        Optional<Region> attackerRegion = regionManager.highestRegion(attacker);
+        Optional<Region> victimRegion = regionManager.highestRegion(victim);
+        return isRegionChange(attackerRegion, victimRegion);
+    }
+
+    private Entity damagingEntity(Entity entity) {
+        if (entity instanceof org.bukkit.entity.Projectile projectile && projectile.getShooter() instanceof Entity shooter) {
+            return shooter;
+        }
+        return entity;
     }
 
     private Player asPlayer(Entity entity) {
