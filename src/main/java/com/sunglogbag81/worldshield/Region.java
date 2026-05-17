@@ -26,6 +26,7 @@ public final class Region {
     private int stay = 40;
     private int fadeOut = 10;
     private int combatExitDelaySeconds = 0;
+    private String spawnWorld;
     private Double spawnX;
     private Double spawnY;
     private Double spawnZ;
@@ -54,6 +55,7 @@ public final class Region {
     public int stay() { return stay; }
     public int fadeOut() { return fadeOut; }
     public int combatExitDelaySeconds() { return combatExitDelaySeconds; }
+    public String spawnWorld() { return spawnWorld == null ? world : spawnWorld; }
     public boolean hasSpawn() { return spawnX != null && spawnY != null && spawnZ != null; }
 
     public Location spawnLocation(org.bukkit.World bukkitWorld) {
@@ -62,6 +64,7 @@ public final class Region {
     }
 
     public void setSpawn(Location location) {
+        this.spawnWorld = location.getWorld() == null ? world : location.getWorld().getName();
         this.spawnX = location.getX();
         this.spawnY = location.getY();
         this.spawnZ = location.getZ();
@@ -108,6 +111,7 @@ public final class Region {
         yaml.set("title.stay", stay);
         yaml.set("title.fade-out", fadeOut);
         yaml.set("combat.exit-delay-seconds", combatExitDelaySeconds);
+        yaml.set("spawn.world", hasSpawn() ? spawnWorld() : null);
         yaml.set("spawn.x", spawnX);
         yaml.set("spawn.y", spawnY);
         yaml.set("spawn.z", spawnZ);
@@ -137,6 +141,7 @@ public final class Region {
         region.fadeOut = yaml.getInt("title.fade-out", 10);
         region.combatExitDelaySeconds = yaml.getInt("combat.exit-delay-seconds", 0);
         if (yaml.contains("spawn.x") && yaml.contains("spawn.y") && yaml.contains("spawn.z")) {
+            region.spawnWorld = yaml.getString("spawn.world", region.world);
             region.spawnX = yaml.getDouble("spawn.x");
             region.spawnY = yaml.getDouble("spawn.y");
             region.spawnZ = yaml.getDouble("spawn.z");

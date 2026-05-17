@@ -11,5 +11,6 @@ global:
   enderpearl: true
   mob-target: true
   mob-damage: true
+  mob-entry: true
 messages:
   prefix: '&6[WorldShield]&r '

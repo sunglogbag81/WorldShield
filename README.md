@@ -20,6 +20,7 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
   - `enderpearl`
   - `mob-target`
   - `mob-damage`
+  - `mob-entry`
 
 ## Commands
 
@@ -69,6 +70,7 @@ flags:
   enderpearl: false
   mob-target: false
   mob-damage: false
+  mob-entry: false
 title:
   enabled: true
   title: '&c결투장에 입장했습니다.'
@@ -79,6 +81,7 @@ title:
 combat:
   exit-delay-seconds: 10
 spawn:
+  world: world
   x: 0.5
   y: 64.0
   z: 0.5
@@ -88,7 +91,9 @@ spawn:
 
 `combat.exit-delay-seconds`가 0보다 크면 해당 구역 안에서 PVP 데미지를 입거나 준 뒤 지정된 초가 지나야 구역 밖으로 나갈 수 있습니다.
 
-`/ws region setspawn <name>`은 플레이어의 개인/침대 스폰을 바꾸지 않습니다. 해당 리전 안에서 죽었거나, 해당 리전 안에서 로그아웃한 플레이어가 다시 접속할 때만 리전 spawn으로 보냅니다.
+`/ws region setspawn <name>`은 리전 밖에서도 실행할 수 있으며, 현재 플레이어 위치와 월드를 리전 spawn으로 저장합니다. 플레이어의 개인/침대 스폰을 바꾸지 않습니다. 해당 리전 안에서 죽었거나, 해당 리전 안에서 로그아웃한 플레이어가 다시 접속할 때만 리전 spawn으로 보냅니다.
+
+`mob-entry: false`는 외부 몹이 해당 리전으로 들어오는 것을 막습니다. `mob-target: false`인 리전에 플레이어가 들어오면, 밖에서 이미 끌고 온 몹 어그로도 자동으로 해제됩니다.
 
 `/ws gui global` 또는 `/ws gui <region>`으로 플래그를 GUI에서 정리할 수 있습니다. 구역 GUI에서 우클릭하면 해당 플래그를 `unset`으로 되돌려 전체 설정을 상속합니다.
 

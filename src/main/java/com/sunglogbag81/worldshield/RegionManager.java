@@ -10,13 +10,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Logger;
 
 public final class RegionManager {
     private final File root;
+    private final Logger logger;
     private final Map<String, Map<String, Region>> regions = new HashMap<>();
 
-    public RegionManager(File dataFolder) {
+    public RegionManager(File dataFolder, Logger logger) {
         this.root = new File(dataFolder, "regions");
+        this.logger = logger;
     }
 
     public void load() {
@@ -28,8 +31,12 @@ public final class RegionManager {
             File[] files = worldDir.listFiles((dir, name) -> name.endsWith(".yml"));
             if (files == null) continue;
             for (File file : files) {
-                Region region = Region.load(file);
-                regions.computeIfAbsent(region.world(), ignored -> new HashMap<>()).put(region.name(), region);
+                try {
+                    Region region = Region.load(file);
+                    regions.computeIfAbsent(region.world(), ignored -> new HashMap<>()).put(region.name(), region);
+                } catch (RuntimeException e) {
+                    logger.warning("Skipping invalid region file " + file.getPath() + ": " + e.getMessage());
+                }
             }
         }
     }

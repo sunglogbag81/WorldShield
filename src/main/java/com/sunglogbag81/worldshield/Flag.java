@@ -14,7 +14,8 @@ public enum Flag {
     ITEM_PICKUP("item-pickup"),
     ENDERPEARL("enderpearl"),
     MOB_TARGET("mob-target"),
-    MOB_DAMAGE("mob-damage");
+    MOB_DAMAGE("mob-damage"),
+    MOB_ENTRY("mob-entry");
 
     private final String key;
 

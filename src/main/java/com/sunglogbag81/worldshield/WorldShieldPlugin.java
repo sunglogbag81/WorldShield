@@ -1,5 +1,6 @@
 package com.sunglogbag81.worldshield;
 
+import io.papermc.paper.event.entity.EntityMoveEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.title.Title;
@@ -84,7 +85,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             globalFlags.put(flag, getConfig().getBoolean("global." + flag.key(), true));
         }
         globalFlags.put(Flag.KEEP_INVENTORY, getConfig().getBoolean("global." + Flag.KEEP_INVENTORY.key(), false));
-        regionManager = new RegionManager(getDataFolder());
+        regionManager = new RegionManager(getDataFolder(), getLogger());
         regionManager.load();
         loadLogoutRegions();
     }
@@ -141,6 +142,15 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onMobMove(EntityMoveEvent event) {
+        if (!(event.getEntity() instanceof Mob)) return;
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (to == null || sameBlock(from, to)) return;
+        if (isEnteringBlockedForMob(from, to)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
         if (!allowed(event.getBlockPlaced().getLocation(), Flag.BLOCK_PLACE)) event.setCancelled(true);
     }
@@ -164,10 +174,12 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEnderPearl(PlayerTeleportEvent event) {
-        if (event.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
-        if (!allowed(event.getFrom(), Flag.ENDERPEARL) || !allowed(event.getTo(), Flag.ENDERPEARL)) {
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL
+                && (!allowed(event.getFrom(), Flag.ENDERPEARL) || !allowed(event.getTo(), Flag.ENDERPEARL))) {
             event.setCancelled(true);
+            return;
         }
+        clearMobTargetsOnProtectedEntry(event.getPlayer(), event.getFrom(), event.getTo());
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -236,6 +248,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             event.setCancelled(true);
             return;
         }
+        clearMobTargetsOnProtectedEntry(player, event.getFrom(), event.getTo());
         Optional<Region> region = toRegion;
         String key = region.map(value -> value.world() + ":" + value.name()).orElse("");
         if (key.equals(currentRegion.get(player.getUniqueId()))) return;
@@ -272,7 +285,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         msg(sender, "/ws region create <name> - 선택 영역으로 구역 생성");
         msg(sender, "/ws region delete <name> - 현재 월드 구역 삭제");
         msg(sender, "/ws region list [world] - 구역 목록");
-        msg(sender, "/ws region setspawn <name> [world] - 현재 위치를 해당 구역 사망/재접속 스폰으로 설정");
+        msg(sender, "/ws region setspawn <name> [world] - 현재 위치를 해당 구역 사망/재접속 스폰으로 설정(구역 밖 가능)");
         msg(sender, "/ws gui <global|region> [world] - 전체/구역 플래그 GUI");
         msg(sender, "/ws flag global <flag> <true|false> - 전체 월드 설정");
         msg(sender, "/ws flag region <name> <flag> <true|false|unset> [world] - 구역 설정");
@@ -334,10 +347,6 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             Optional<Region> region = regionManager.get(world, args[2]);
             if (region.isEmpty()) {
                 msg(sender, ChatColor.RED + "구역을 찾지 못했습니다.");
-                return true;
-            }
-            if (!region.get().contains(player.getLocation())) {
-                msg(sender, ChatColor.RED + "해당 구역 안에서 setspawn을 실행하세요.");
                 return true;
             }
             region.get().setSpawn(player.getLocation());
@@ -537,6 +546,34 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return value ? ChatColor.GREEN + "ON" : ChatColor.RED + "OFF";
     }
 
+    private boolean isEnteringBlockedForMob(Location from, Location to) {
+        Optional<Region> fromRegion = regionManager.highestRegion(from);
+        Optional<Region> toRegion = regionManager.highestRegion(to);
+        if (toRegion.isEmpty() || !isRegionChange(fromRegion, toRegion)) return false;
+        return !allowed(to, Flag.MOB_ENTRY);
+    }
+
+    private boolean isRegionChange(Optional<Region> fromRegion, Optional<Region> toRegion) {
+        if (fromRegion.isEmpty() && toRegion.isEmpty()) return false;
+        if (fromRegion.isEmpty() || toRegion.isEmpty()) return true;
+        Region from = fromRegion.get();
+        Region to = toRegion.get();
+        return !from.world().equals(to.world()) || !from.name().equals(to.name());
+    }
+
+    private void clearMobTargetsOnProtectedEntry(Player player, Location from, Location to) {
+        if (to == null || !isRegionChange(regionManager.highestRegion(from), regionManager.highestRegion(to))) return;
+        if (!allowed(to, Flag.MOB_TARGET)) clearMobTargets(player);
+    }
+
+    private void clearMobTargets(Player player) {
+        for (Entity entity : player.getWorld().getEntities()) {
+            if (entity instanceof Mob mob && player.equals(mob.getTarget())) {
+                mob.setTarget(null);
+            }
+        }
+    }
+
     private boolean isBlockedByCombatExitDelay(Player player, Optional<Region> fromRegion, Optional<Region> toRegion) {
         if (fromRegion.isEmpty()) return false;
         Region region = fromRegion.get();
@@ -564,7 +601,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     private Optional<Location> spawnOf(Region region) {
-        World world = Bukkit.getWorld(region.world());
+        World world = Bukkit.getWorld(region.spawnWorld());
         if (world == null || !region.hasSpawn()) return Optional.empty();
         return Optional.of(region.spawnLocation(world));
     }
