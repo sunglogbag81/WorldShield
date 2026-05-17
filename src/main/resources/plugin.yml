@@ -9,7 +9,14 @@ commands:
     aliases: [ws]
     description: Manage WorldShield regions and flags.
     usage: /<command> help
+  auto-fire-ban:
+    aliases: [자동차단]
+    description: Automatically ban recent fire source players in front of the caller.
+    usage: /<command>
 permissions:
   worldshield.admin:
     description: Allows managing WorldShield.
+    default: op
+  worldshield.autoban.exempt:
+    description: Exempts a player from fire auto-ban.
     default: op
