@@ -12,5 +12,6 @@ global:
   mob-target: true
   mob-damage: true
   mob-entry: true
+  equipment-durability: true
 messages:
   prefix: '&6[WorldShield]&r '

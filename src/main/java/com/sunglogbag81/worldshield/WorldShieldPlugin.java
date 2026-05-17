@@ -10,6 +10,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.Waterlogged;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
@@ -34,7 +35,10 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
+import org.bukkit.event.player.PlayerBucketEvent;
+import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -223,6 +227,21 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
         if (!allowed(event.getBlockPlaced().getLocation(), Flag.BLOCK_PLACE)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBucketEmpty(PlayerBucketEmptyEvent event) {
+        if (bucketAffectsBlockedLocation(event, Flag.BLOCK_PLACE)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBucketFill(PlayerBucketFillEvent event) {
+        if (bucketAffectsBlockedLocation(event, Flag.BLOCK_BREAK)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onItemDamage(PlayerItemDamageEvent event) {
+        if (!allowed(event.getPlayer().getLocation(), Flag.EQUIPMENT_DURABILITY)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -716,6 +735,29 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     private boolean isFire(Material material) {
         return material == Material.FIRE || material == Material.SOUL_FIRE;
+    }
+
+    private boolean bucketAffectsBlockedLocation(PlayerBucketEvent event, Flag flag) {
+        for (Block block : bucketAffectedBlocks(event)) {
+            if (!allowed(block.getLocation(), flag)) return true;
+        }
+        return false;
+    }
+
+    private Set<Block> bucketAffectedBlocks(PlayerBucketEvent event) {
+        Set<Block> blocks = new HashSet<>();
+        blocks.add(event.getBlock());
+
+        Block clicked = event.getBlockClicked();
+        if (clicked != null) {
+            if (event instanceof PlayerBucketEmptyEvent) {
+                blocks.add(clicked.getRelative(event.getBlockFace()));
+            }
+            if (clicked.getBlockData() instanceof Waterlogged) {
+                blocks.add(clicked);
+            }
+        }
+        return blocks;
     }
 
     private boolean isEnteringBlockedForMob(Location from, Location to) {

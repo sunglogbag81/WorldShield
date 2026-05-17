@@ -21,6 +21,7 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
   - `mob-target`
   - `mob-damage`
   - `mob-entry`
+  - `equipment-durability`
 
 ## Commands
 
@@ -72,6 +73,7 @@ flags:
   mob-target: false
   mob-damage: false
   mob-entry: false
+  equipment-durability: false
 title:
   enabled: true
   title: '&c결투장에 입장했습니다.'
@@ -95,6 +97,10 @@ spawn:
 `/ws region setspawn <name>`은 리전 밖에서도 실행할 수 있으며, 현재 플레이어 위치와 월드를 리전 spawn으로 저장합니다. 플레이어의 개인/침대 스폰을 바꾸지 않습니다. 해당 리전 안에서 죽었거나, 해당 리전 안에서 로그아웃한 플레이어가 다시 접속할 때만 리전 spawn으로 보냅니다.
 
 `mob-entry: false`는 외부 몹이 해당 리전으로 들어오는 것을 막습니다. `mob-target: false`인 리전에 플레이어가 들어오면, 밖에서 이미 끌고 온 몹 어그로도 자동으로 해제됩니다.
+
+`equipment-durability: false`는 해당 위치의 플레이어 장비/도구 내구도 감소를 막습니다.
+
+`block-place`는 일반 블록 설치뿐 아니라 물/용암 설치와 반블럭 같은 waterlogged 블록에 물을 채우는 동작도 막습니다. `block-break`는 일반 블록 파괴뿐 아니라 물/용암을 양동이로 퍼내는 동작과 waterlogged 블록에서 물을 빼는 동작도 막습니다.
 
 리전 경계 안팎을 넘는 직접/투사체 데미지는 항상 차단됩니다. 즉 내부에서 외부로, 외부에서 내부로, 서로 다른 리전 사이로 데미지를 줄 수 없습니다.
 
