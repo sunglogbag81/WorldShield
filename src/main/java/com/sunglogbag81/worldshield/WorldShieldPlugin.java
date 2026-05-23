@@ -20,6 +20,7 @@ import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Vehicle;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -46,6 +47,9 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.vehicle.VehicleEnterEvent;
+import org.bukkit.event.vehicle.VehicleExitEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -77,6 +81,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     private final Map<UUID, Selection> selections = new HashMap<>();
     private final Map<UUID, String> currentRegion = new HashMap<>();
     private final Map<UUID, Long> lastCombatDamage = new HashMap<>();
+    private final Map<UUID, Long> lastCombatExitWarning = new HashMap<>();
     private final Map<UUID, String> lastDeathRegion = new HashMap<>();
     private final Map<UUID, String> logoutRegions = new HashMap<>();
     private final Map<UUID, String> openFlagGuis = new HashMap<>();
@@ -329,6 +334,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+        lastCombatExitWarning.remove(player.getUniqueId());
         Optional<Region> region = regionManager.highestRegion(player.getLocation()).filter(Region::hasSpawn);
         if (region.isPresent()) {
             logoutRegions.put(player.getUniqueId(), regionKey(region.get()));
@@ -350,6 +356,10 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @EventHandler(ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
         if (event.getTo() == null || sameBlock(event.getFrom(), event.getTo())) return;
+        if (event.getPlayer().isInsideVehicle() && isVehicleRegionBoundaryBlocked(event.getFrom(), event.getTo())) {
+            event.setCancelled(true);
+            return;
+        }
         Player player = event.getPlayer();
         Optional<Region> fromRegion = regionManager.highestRegion(event.getFrom());
         Optional<Region> toRegion = regionManager.highestRegion(event.getTo());
@@ -365,6 +375,39 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         region.filter(value -> value.titleEnabled() && (player.getGameMode() != GameMode.SPECTATOR || value.titleSpectator())).ifPresent(value -> player.showTitle(Title.title(
                 component(value.title()), component(value.subtitle()),
                 Title.Times.times(Duration.ofMillis(value.fadeIn() * 50L), Duration.ofMillis(value.stay() * 50L), Duration.ofMillis(value.fadeOut() * 50L)))));
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onVehicleMove(VehicleMoveEvent event) {
+        if (sameBlock(event.getFrom(), event.getTo())) return;
+        Optional<Region> fromRegion = regionManager.highestRegion(event.getFrom());
+        Optional<Region> toRegion = regionManager.highestRegion(event.getTo());
+        if (isVehicleRegionBoundaryBlocked(event.getFrom(), event.getTo())
+                || isVehicleBlockedByCombatExitDelay(event.getVehicle(), fromRegion, toRegion)) {
+            event.getVehicle().teleport(safeVehicleLocation(event.getFrom()));
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onVehicleEnter(VehicleEnterEvent event) {
+        if (!(event.getEntered() instanceof Player)) return;
+        if (!allowed(event.getVehicle().getLocation(), Flag.VEHICLE_ENTRY)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onVehicleExit(VehicleExitEvent event) {
+        if (!(event.getExited() instanceof Player player)) return;
+        Vehicle vehicle = event.getVehicle();
+        if (!allowed(vehicle.getLocation(), Flag.VEHICLE_EXIT)) {
+            event.setCancelled(true);
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (player.isOnline() && !player.isInsideVehicle() && !vehicle.isDead()) {
+                    vehicle.addPassenger(player);
+                }
+            });
+        }
     }
 
     @Override
@@ -924,6 +967,28 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return !allowed(to, Flag.MOB_ENTRY);
     }
 
+    private boolean isVehicleRegionBoundaryBlocked(Location from, Location to) {
+        Optional<Region> fromRegion = regionManager.highestRegion(from);
+        Optional<Region> toRegion = regionManager.highestRegion(to);
+        if (!isRegionChange(fromRegion, toRegion)) return false;
+        return (toRegion.isPresent() && !allowed(to, Flag.VEHICLE_ENTRY))
+                || (fromRegion.isPresent() && !allowed(from, Flag.VEHICLE_EXIT));
+    }
+
+    private boolean isVehicleBlockedByCombatExitDelay(Vehicle vehicle, Optional<Region> fromRegion, Optional<Region> toRegion) {
+        if (!isRegionChange(fromRegion, toRegion)) return false;
+        for (Entity passenger : vehicle.getPassengers()) {
+            if (passenger instanceof Player player && isBlockedByCombatExitDelay(player, fromRegion, toRegion)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Location safeVehicleLocation(Location from) {
+        return from.clone().add(0, 0.05, 0);
+    }
+
     private boolean isRegionChange(Optional<Region> fromRegion, Optional<Region> toRegion) {
         if (fromRegion.isEmpty() && toRegion.isEmpty()) return false;
         if (fromRegion.isEmpty() || toRegion.isEmpty()) return true;
@@ -957,7 +1022,12 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         long remainingMillis = region.combatExitDelaySeconds() * 1000L - (System.currentTimeMillis() - lastDamage);
         if (remainingMillis <= 0) return false;
         long remainingSeconds = Math.max(1, (remainingMillis + 999) / 1000);
-        msg(player, ChatColor.RED + "전투 중에는 결투장을 나갈 수 없습니다. " + remainingSeconds + "초 후 다시 시도하세요.");
+        long now = System.currentTimeMillis();
+        Long lastWarning = lastCombatExitWarning.get(player.getUniqueId());
+        if (lastWarning == null || now - lastWarning >= 1000L) {
+            lastCombatExitWarning.put(player.getUniqueId(), now);
+            msg(player, ChatColor.RED + "전투 중에는 결투장을 나갈 수 없습니다. " + remainingSeconds + "초 후 다시 시도하세요.");
+        }
         return true;
     }
 

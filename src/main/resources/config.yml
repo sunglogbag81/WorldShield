@@ -12,6 +12,8 @@ global:
   mob-target: true
   mob-damage: true
   mob-entry: true
+  vehicle-entry: true
+  vehicle-exit: true
   equipment-durability: true
   waterlogging: true
 messages:
