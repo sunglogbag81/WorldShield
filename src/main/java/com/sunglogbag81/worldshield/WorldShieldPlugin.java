@@ -750,44 +750,57 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     private void showPolygonPrism(Player player, Selection selection) {
         List<Region.PolygonPoint> points = selection.polygonPoints();
-        int minY = selection.minY();
-        int maxY = selection.maxY() + 1;
+        double minY = selection.minY();
+        double maxY = selection.maxY() + 1.0;
         Particle.DustOptions edge = new Particle.DustOptions(Color.LIME, 1.0F);
         Particle.DustOptions vertex = new Particle.DustOptions(Color.YELLOW, 1.4F);
-
-        for (Region.PolygonPoint point : points) {
-            drawVerticalParticleLine(player, point.x() + 0.5, point.z() + 0.5, minY, maxY, vertex);
-        }
+        Particle.DustOptions sideGuide = new Particle.DustOptions(Color.AQUA, 0.75F);
 
         for (int i = 0; i < points.size() - 1; i++) {
-            drawHorizontalParticleLine(player, points.get(i), points.get(i + 1), minY, edge);
-            drawHorizontalParticleLine(player, points.get(i), points.get(i + 1), maxY, edge);
+            drawPrismBoundarySegment(player, points.get(i), points.get(i + 1), minY, maxY, edge, sideGuide);
         }
         if (points.size() >= 3) {
-            drawHorizontalParticleLine(player, points.get(points.size() - 1), points.get(0), minY, edge);
-            drawHorizontalParticleLine(player, points.get(points.size() - 1), points.get(0), maxY, edge);
+            drawPrismBoundarySegment(player, points.get(points.size() - 1), points.get(0), minY, maxY, edge, sideGuide);
+        }
+
+        for (Region.PolygonPoint point : points) {
+            drawVerticalParticleLine(player, point.x() + 0.5, point.z() + 0.5, minY, maxY, 0.5, vertex);
         }
     }
 
-    private void drawHorizontalParticleLine(Player player, Region.PolygonPoint from, Region.PolygonPoint to, double y, Particle.DustOptions dust) {
+    private void drawPrismBoundarySegment(Player player, Region.PolygonPoint from, Region.PolygonPoint to, double minY, double maxY,
+                                          Particle.DustOptions edgeDust, Particle.DustOptions sideDust) {
         double x1 = from.x() + 0.5;
         double z1 = from.z() + 0.5;
         double x2 = to.x() + 0.5;
         double z2 = to.z() + 0.5;
+        drawParticleLine(player, x1, minY, z1, x2, minY, z2, 0.5, edgeDust);
+        drawParticleLine(player, x1, maxY, z1, x2, maxY, z2, 0.5, edgeDust);
+
         double dx = x2 - x1;
         double dz = z2 - z1;
-        int steps = Math.max(1, (int) Math.ceil(Math.sqrt(dx * dx + dz * dz) * 2.0));
+        int sideColumns = Math.max(1, (int) Math.ceil(Math.sqrt(dx * dx + dz * dz) / 3.0));
+        for (int i = 1; i < sideColumns; i++) {
+            double ratio = i / (double) sideColumns;
+            drawVerticalParticleLine(player, x1 + dx * ratio, z1 + dz * ratio, minY, maxY, 1.5, sideDust);
+        }
+    }
+
+    private void drawParticleLine(Player player, double x1, double y1, double z1, double x2, double y2, double z2,
+                                  double spacing, Particle.DustOptions dust) {
+        double dx = x2 - x1;
+        double dy = y2 - y1;
+        double dz = z2 - z1;
+        int steps = Math.max(1, (int) Math.ceil(Math.sqrt(dx * dx + dy * dy + dz * dz) / spacing));
         for (int i = 0; i <= steps; i++) {
             double ratio = i / (double) steps;
-            Location location = new Location(player.getWorld(), x1 + dx * ratio, y, z1 + dz * ratio);
+            Location location = new Location(player.getWorld(), x1 + dx * ratio, y1 + dy * ratio, z1 + dz * ratio);
             player.spawnParticle(Particle.DUST, location, 1, 0, 0, 0, 0, dust);
         }
     }
 
-    private void drawVerticalParticleLine(Player player, double x, double z, int minY, int maxY, Particle.DustOptions dust) {
-        for (double y = minY; y <= maxY; y += 1.0) {
-            player.spawnParticle(Particle.DUST, new Location(player.getWorld(), x, y, z), 1, 0, 0, 0, 0, dust);
-        }
+    private void drawVerticalParticleLine(Player player, double x, double z, double minY, double maxY, double spacing, Particle.DustOptions dust) {
+        drawParticleLine(player, x, minY, z, x, maxY, z, spacing, dust);
     }
 
     private boolean invalidFlag(CommandSender sender) {
