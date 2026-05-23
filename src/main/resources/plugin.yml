@@ -13,6 +13,10 @@ commands:
     aliases: [자동차단]
     description: Automatically ban recent fire source players in front of the caller.
     usage: /<command>
+  worldshield-undo:
+    aliases: [undo]
+    description: Undo the last WorldShield polygon point.
+    usage: /<command>
 permissions:
   worldshield.admin:
     description: Allows managing WorldShield.

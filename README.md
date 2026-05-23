@@ -6,7 +6,8 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
 
 - Global flags apply to all worlds: overworld, nether and end.
 - Region flags override global flags.
-- Wooden axe region selection, similar to WorldEdit.
+- Wooden axe cuboid/Y-range selection, similar to WorldEdit.
+- Stick-based polygon XZ point selection with 3D particle previews.
 - Region YAML files with per-region title/subtitle.
 - Flags:
   - `pvp`
@@ -31,7 +32,12 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
 /ws wand
 /ws pos1
 /ws pos2
+/ws poly undo
+/ws poly clear
+/ws poly list
+/undo
 /ws region create <name>
+/ws region create <name> polygon
 /ws region delete <name>
 /ws region list [world]
 /ws region info <name> [world]
@@ -46,6 +52,16 @@ WorldGuard-like lightweight Paper/Spigot protection plugin.
 /ws reload
 ```
 
+## Polygon regions
+
+1. Use the wooden axe to set two blocks. For polygon regions, their Y values become `min.y` and `max.y`.
+2. Click blocks with a stick to add XZ polygon vertices in boundary order.
+3. Use `/ws poly undo` or `/undo` to remove the last stick-clicked vertex.
+4. Use `/ws poly clear` to clear all polygon vertices.
+5. Create the region with `/ws region create <name> polygon`.
+
+While selecting, WorldShield shows a 3D particle outline: top and bottom polygon edges plus vertical vertex columns from minY to maxY.
+
 ## Region files
 
 Regions are saved in:
@@ -54,11 +70,12 @@ Regions are saved in:
 plugins/WorldShield/regions/<world>/<region>.yml
 ```
 
-Example:
+Cuboid example:
 
 ```yaml
 world: world
 name: spawn
+shape: cuboid
 priority: 0
 min: {x: -10, y: -64, z: -10}
 max: {x: 10, y: 319, z: 10}
@@ -95,6 +112,28 @@ spawn:
   yaw: 0.0
   pitch: 0.0
 ```
+
+Polygon example:
+
+```yaml
+world: world
+name: town
+shape: polygon
+priority: 0
+min: {x: -30, y: 60, z: -20}
+max: {x: 40, y: 120, z: 35}
+points:
+  - {x: -30, z: -20}
+  - {x: 25, z: -15}
+  - {x: 40, z: 10}
+  - {x: 5, z: 35}
+  - {x: -25, z: 15}
+flags:
+  block-break: false
+  block-place: false
+```
+
+`shape`가 없는 기존 region files는 `cuboid`로 읽혀 하위 호환됩니다.
 
 `combat.exit-delay-seconds`가 0보다 크면 해당 구역 안에서 PVP 데미지를 입거나 준 뒤 지정된 초가 지나야 구역 밖으로 나갈 수 있습니다.
 

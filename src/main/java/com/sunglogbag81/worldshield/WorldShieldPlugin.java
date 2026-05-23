@@ -6,9 +6,11 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Color;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.Waterlogged;
@@ -93,6 +95,9 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         getCommand("worldshield").setTabCompleter(this);
         getCommand("auto-fire-ban").setExecutor(this);
         getCommand("auto-fire-ban").setTabCompleter(this);
+        getCommand("worldshield-undo").setExecutor(this);
+        getCommand("worldshield-undo").setTabCompleter(this);
+        Bukkit.getScheduler().runTaskTimer(this, this::showSelectionParticles, 20L, 10L);
     }
 
     private void loadAll() {
@@ -117,8 +122,23 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         Player player = event.getPlayer();
         if (!player.hasPermission("worldshield.admin")) return;
         ItemStack item = event.getItem();
-        if (item == null || item.getType() != Material.WOODEN_AXE || event.getClickedBlock() == null) return;
+        if (item == null || event.getClickedBlock() == null) return;
         if (event.getAction() != Action.LEFT_CLICK_BLOCK && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+
+        if (item.getType() == Material.STICK) {
+            Selection selection = selections.computeIfAbsent(player.getUniqueId(), ignored -> new Selection());
+            try {
+                selection.addPolygonPoint(event.getClickedBlock());
+                msg(player, "polygon 꼭짓점 추가: " + event.getClickedBlock().getX() + ", " + event.getClickedBlock().getZ()
+                        + " (총 " + selection.polygonPoints().size() + "개, 되돌리기: /undo 또는 /ws poly undo)");
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                msg(player, ChatColor.RED + e.getMessage());
+            }
+            event.setCancelled(true);
+            return;
+        }
+
+        if (item.getType() != Material.WOODEN_AXE) return;
         Selection selection = selections.computeIfAbsent(player.getUniqueId(), ignored -> new Selection());
         if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
             selection.setPos1(event.getClickedBlock());
@@ -354,6 +374,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             return true;
         }
         if (command.getName().equalsIgnoreCase("auto-fire-ban")) return autoFireBanCommand(sender);
+        if (command.getName().equalsIgnoreCase("worldshield-undo")) return undoPolygonPoint(sender);
         if (args.length == 0 || args[0].equalsIgnoreCase("help")) return help(sender);
         if (args[0].equalsIgnoreCase("reload")) {
             loadAll();
@@ -363,6 +384,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args[0].equalsIgnoreCase("자동차단") || args[0].equalsIgnoreCase("autoban")) return autoFireBanCommand(sender);
         if (args[0].equalsIgnoreCase("wand")) return giveWand(sender);
         if (args[0].equalsIgnoreCase("pos1") || args[0].equalsIgnoreCase("pos2")) return setPos(sender, args[0]);
+        if (args[0].equalsIgnoreCase("undo")) return undoPolygonPoint(sender);
+        if (args[0].equalsIgnoreCase("poly")) return polyCommand(sender, args);
         if (args[0].equalsIgnoreCase("region")) return regionCommand(sender, args);
         if (args[0].equalsIgnoreCase("gui")) return guiCommand(sender, args);
         if (args[0].equalsIgnoreCase("flag")) return flagCommand(sender, args);
@@ -373,7 +396,10 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     private boolean help(CommandSender sender) {
         msg(sender, "/ws wand - 나무 도끼를 받습니다.");
+        msg(sender, "/ws poly undo - 막대기로 찍은 마지막 polygon 꼭짓점 제거 (/undo도 가능)");
+        msg(sender, "/ws poly clear - polygon 꼭짓점 전체 제거");
         msg(sender, "/ws region create <name> - 선택 영역으로 구역 생성");
+        msg(sender, "/ws region create <name> polygon - 막대기 꼭짓점과 나무 도끼 Y범위로 다각형 구역 생성");
         msg(sender, "/ws region delete <name> - 현재 월드 구역 삭제");
         msg(sender, "/ws region list [world] - 구역 목록");
         msg(sender, "/ws region setspawn <name> [world] - 현재 위치를 해당 구역 사망/재접속 스폰으로 설정(구역 밖 가능)");
@@ -429,7 +455,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     private boolean giveWand(CommandSender sender) {
         if (!(sender instanceof Player player)) return true;
         player.getInventory().addItem(new ItemStack(Material.WOODEN_AXE));
-        msg(player, "나무 도끼 지급 완료. 좌클릭=pos1, 우클릭=pos2");
+        player.getInventory().addItem(new ItemStack(Material.STICK));
+        msg(player, "나무 도끼/막대기 지급 완료. 도끼 좌/우클릭=Y범위, 막대기 클릭=polygon XZ 꼭짓점");
         return true;
     }
 
@@ -446,6 +473,49 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return true;
     }
 
+    private boolean polyCommand(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) return true;
+        if (args.length < 2) {
+            msg(player, "/ws poly undo|clear|list");
+            return true;
+        }
+        if (args[1].equalsIgnoreCase("undo")) return undoPolygonPoint(sender);
+        Selection selection = selections.computeIfAbsent(player.getUniqueId(), ignored -> new Selection());
+        if (args[1].equalsIgnoreCase("clear")) {
+            selection.clearPolygonPoints();
+            msg(player, "polygon 꼭짓점을 모두 지웠습니다.");
+            return true;
+        }
+        if (args[1].equalsIgnoreCase("list")) {
+            List<String> points = new ArrayList<>();
+            int index = 1;
+            for (Region.PolygonPoint point : selection.polygonPoints()) {
+                points.add(index++ + ": " + point.x() + ", " + point.z());
+            }
+            msg(player, "polygon 꼭짓점 " + points.size() + "개" + (points.isEmpty() ? "" : " - " + String.join(" / ", points)));
+            return true;
+        }
+        msg(player, "/ws poly undo|clear|list");
+        return true;
+    }
+
+    private boolean undoPolygonPoint(CommandSender sender) {
+        if (!(sender instanceof Player player)) return true;
+        Selection selection = selections.get(player.getUniqueId());
+        if (selection == null) {
+            msg(player, ChatColor.RED + "되돌릴 polygon 꼭짓점이 없습니다.");
+            return true;
+        }
+        Region.PolygonPoint removed = selection.undoPolygonPoint();
+        if (removed == null) {
+            msg(player, ChatColor.RED + "되돌릴 polygon 꼭짓점이 없습니다.");
+            return true;
+        }
+        msg(player, "마지막 polygon 꼭짓점 제거: " + removed.x() + ", " + removed.z()
+                + " (남은 " + selection.polygonPoints().size() + "개)");
+        return true;
+    }
+
     private boolean regionCommand(CommandSender sender, String[] args) {
         if (args.length < 2) return help(sender);
         String world = sender instanceof Player player ? player.getWorld().getName() : Bukkit.getWorlds().get(0).getName();
@@ -455,10 +525,16 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
                 msg(player, ChatColor.RED + "먼저 나무 도끼로 같은 월드의 두 지점을 선택하세요.");
                 return true;
             }
-            Region region = selection.toRegion(args[2]);
+            Region region;
+            try {
+                region = args.length >= 4 && args[3].equalsIgnoreCase("polygon") ? selection.toPolygonRegion(args[2]) : selection.toRegion(args[2]);
+            } catch (IllegalStateException e) {
+                msg(player, ChatColor.RED + e.getMessage());
+                return true;
+            }
             try {
                 regionManager.save(region);
-                msg(player, "구역 생성: " + region.name());
+                msg(player, "구역 생성: " + region.name() + " (shape=" + region.shape().name().toLowerCase() + ")");
             } catch (IOException e) {
                 msg(player, ChatColor.RED + "구역 저장 실패: " + e.getMessage());
             }
@@ -646,8 +722,11 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (command.getName().equalsIgnoreCase("auto-fire-ban")) return List.of();
-        if (args.length == 1) return List.of("help", "wand", "pos1", "pos2", "region", "gui", "flag", "title", "combat", "자동차단", "autoban", "reload");
+        if (command.getName().equalsIgnoreCase("worldshield-undo")) return List.of();
+        if (args.length == 1) return List.of("help", "wand", "pos1", "pos2", "poly", "undo", "region", "gui", "flag", "title", "combat", "자동차단", "autoban", "reload");
+        if (args.length == 2 && args[0].equalsIgnoreCase("poly")) return List.of("undo", "clear", "list");
         if (args.length == 2 && args[0].equalsIgnoreCase("region")) return List.of("create", "delete", "list", "info", "setspawn");
+        if (args.length == 4 && args[0].equalsIgnoreCase("region") && args[1].equalsIgnoreCase("create")) return List.of("polygon");
         if (args.length == 2 && args[0].equalsIgnoreCase("gui")) return sender instanceof Player player ? regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList() : List.of("global");
         if (args.length == 2 && args[0].equalsIgnoreCase("flag")) return List.of("global", "region");
         if ((args.length == 3 && args[1].equalsIgnoreCase("global")) || (args.length == 4 && args[1].equalsIgnoreCase("region"))) {
@@ -657,6 +736,58 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args.length == 3 && args[0].equalsIgnoreCase("title")) return List.of("title", "subtitle", "spectator");
         if (args.length == 3 && args[0].equalsIgnoreCase("combat")) return List.of("exit-delay");
         return List.of();
+    }
+
+    private void showSelectionParticles() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!player.hasPermission("worldshield.admin")) continue;
+            Selection selection = selections.get(player.getUniqueId());
+            if (selection == null || !selection.isComplete() || !selection.hasPolygonPoints()) continue;
+            if (selection.pos1().getWorld() == null || !selection.pos1().getWorld().equals(player.getWorld())) continue;
+            showPolygonPrism(player, selection);
+        }
+    }
+
+    private void showPolygonPrism(Player player, Selection selection) {
+        List<Region.PolygonPoint> points = selection.polygonPoints();
+        int minY = selection.minY();
+        int maxY = selection.maxY() + 1;
+        Particle.DustOptions edge = new Particle.DustOptions(Color.LIME, 1.0F);
+        Particle.DustOptions vertex = new Particle.DustOptions(Color.YELLOW, 1.4F);
+
+        for (Region.PolygonPoint point : points) {
+            drawVerticalParticleLine(player, point.x() + 0.5, point.z() + 0.5, minY, maxY, vertex);
+        }
+
+        for (int i = 0; i < points.size() - 1; i++) {
+            drawHorizontalParticleLine(player, points.get(i), points.get(i + 1), minY, edge);
+            drawHorizontalParticleLine(player, points.get(i), points.get(i + 1), maxY, edge);
+        }
+        if (points.size() >= 3) {
+            drawHorizontalParticleLine(player, points.get(points.size() - 1), points.get(0), minY, edge);
+            drawHorizontalParticleLine(player, points.get(points.size() - 1), points.get(0), maxY, edge);
+        }
+    }
+
+    private void drawHorizontalParticleLine(Player player, Region.PolygonPoint from, Region.PolygonPoint to, double y, Particle.DustOptions dust) {
+        double x1 = from.x() + 0.5;
+        double z1 = from.z() + 0.5;
+        double x2 = to.x() + 0.5;
+        double z2 = to.z() + 0.5;
+        double dx = x2 - x1;
+        double dz = z2 - z1;
+        int steps = Math.max(1, (int) Math.ceil(Math.sqrt(dx * dx + dz * dz) * 2.0));
+        for (int i = 0; i <= steps; i++) {
+            double ratio = i / (double) steps;
+            Location location = new Location(player.getWorld(), x1 + dx * ratio, y, z1 + dz * ratio);
+            player.spawnParticle(Particle.DUST, location, 1, 0, 0, 0, 0, dust);
+        }
+    }
+
+    private void drawVerticalParticleLine(Player player, double x, double z, int minY, int maxY, Particle.DustOptions dust) {
+        for (double y = minY; y <= maxY; y += 1.0) {
+            player.spawnParticle(Particle.DUST, new Location(player.getWorld(), x, y, z), 1, 0, 0, 0, 0, dust);
+        }
     }
 
     private boolean invalidFlag(CommandSender sender) {
