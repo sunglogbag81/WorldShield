@@ -525,15 +525,19 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
                 msg(player, ChatColor.RED + "먼저 나무 도끼로 같은 월드의 두 지점을 선택하세요.");
                 return true;
             }
+            boolean polygon = args.length >= 4 && args[3].equalsIgnoreCase("polygon");
             Region region;
             try {
-                region = args.length >= 4 && args[3].equalsIgnoreCase("polygon") ? selection.toPolygonRegion(args[2]) : selection.toRegion(args[2]);
+                region = polygon ? selection.toPolygonRegion(args[2]) : selection.toRegion(args[2]);
             } catch (IllegalStateException e) {
                 msg(player, ChatColor.RED + e.getMessage());
                 return true;
             }
             try {
                 regionManager.save(region);
+                if (polygon) {
+                    selection.clearPolygonPoints();
+                }
                 msg(player, "구역 생성: " + region.name() + " (shape=" + region.shape().name().toLowerCase() + ")");
             } catch (IOException e) {
                 msg(player, ChatColor.RED + "구역 저장 실패: " + e.getMessage());
