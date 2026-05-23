@@ -16,8 +16,6 @@ public enum Flag {
     MOB_TARGET("mob-target"),
     MOB_DAMAGE("mob-damage"),
     MOB_ENTRY("mob-entry"),
-    VEHICLE_ENTRY("vehicle-entry"),
-    VEHICLE_EXIT("vehicle-exit"),
     EQUIPMENT_DURABILITY("equipment-durability"),
     WATERLOGGING("waterlogging");
 

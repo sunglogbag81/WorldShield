@@ -47,8 +47,6 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
-import org.bukkit.event.vehicle.VehicleEnterEvent;
-import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -356,10 +354,6 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @EventHandler(ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
         if (event.getTo() == null || sameBlock(event.getFrom(), event.getTo())) return;
-        if (event.getPlayer().isInsideVehicle() && isVehicleRegionBoundaryBlocked(event.getFrom(), event.getTo())) {
-            event.setCancelled(true);
-            return;
-        }
         Player player = event.getPlayer();
         Optional<Region> fromRegion = regionManager.highestRegion(event.getFrom());
         Optional<Region> toRegion = regionManager.highestRegion(event.getTo());
@@ -382,31 +376,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (sameBlock(event.getFrom(), event.getTo())) return;
         Optional<Region> fromRegion = regionManager.highestRegion(event.getFrom());
         Optional<Region> toRegion = regionManager.highestRegion(event.getTo());
-        if (isVehicleRegionBoundaryBlocked(event.getFrom(), event.getTo())
-                || isVehicleBlockedByCombatExitDelay(event.getVehicle(), fromRegion, toRegion)) {
+        if (isVehicleBlockedByCombatExitDelay(event.getVehicle(), fromRegion, toRegion)) {
             event.getVehicle().teleport(safeVehicleLocation(event.getFrom()));
-        }
-    }
-
-    @EventHandler(ignoreCancelled = true)
-    public void onVehicleEnter(VehicleEnterEvent event) {
-        if (!(event.getEntered() instanceof Player)) return;
-        if (!allowed(event.getVehicle().getLocation(), Flag.VEHICLE_ENTRY)) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(ignoreCancelled = true)
-    public void onVehicleExit(VehicleExitEvent event) {
-        if (!(event.getExited() instanceof Player player)) return;
-        Vehicle vehicle = event.getVehicle();
-        if (!allowed(vehicle.getLocation(), Flag.VEHICLE_EXIT)) {
-            event.setCancelled(true);
-            Bukkit.getScheduler().runTask(this, () -> {
-                if (player.isOnline() && !player.isInsideVehicle() && !vehicle.isDead()) {
-                    vehicle.addPassenger(player);
-                }
-            });
         }
     }
 
@@ -965,14 +936,6 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         Optional<Region> toRegion = regionManager.highestRegion(to);
         if (toRegion.isEmpty() || !isRegionChange(fromRegion, toRegion)) return false;
         return !allowed(to, Flag.MOB_ENTRY);
-    }
-
-    private boolean isVehicleRegionBoundaryBlocked(Location from, Location to) {
-        Optional<Region> fromRegion = regionManager.highestRegion(from);
-        Optional<Region> toRegion = regionManager.highestRegion(to);
-        if (!isRegionChange(fromRegion, toRegion)) return false;
-        return (toRegion.isPresent() && !allowed(to, Flag.VEHICLE_ENTRY))
-                || (fromRegion.isPresent() && !allowed(from, Flag.VEHICLE_EXIT));
     }
 
     private boolean isVehicleBlockedByCombatExitDelay(Vehicle vehicle, Optional<Region> fromRegion, Optional<Region> toRegion) {
