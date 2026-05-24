@@ -20,7 +20,8 @@ public enum Flag {
     MOB_DAMAGE("mob-damage"),
     MOB_ENTRY("mob-entry"),
     EQUIPMENT_DURABILITY("equipment-durability"),
-    WATERLOGGING("waterlogging");
+    WATERLOGGING("waterlogging"),
+    ELYTRA("elytra");
 
     private final String key;
 

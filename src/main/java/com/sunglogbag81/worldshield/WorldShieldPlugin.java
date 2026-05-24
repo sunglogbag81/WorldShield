@@ -49,6 +49,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerToggleGlideEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -364,12 +365,27 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     @EventHandler(ignoreCancelled = true)
+    public void onToggleGlide(PlayerToggleGlideEvent event) {
+        if (!event.isGliding()) return;
+        Player player = event.getPlayer();
+        if (!allowed(player.getLocation(), Flag.ELYTRA)) {
+            event.setCancelled(true);
+            player.setGliding(false);
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
         if (event.getTo() == null || sameBlock(event.getFrom(), event.getTo())) return;
         Player player = event.getPlayer();
         Optional<Region> fromRegion = regionManager.highestRegion(event.getFrom());
         Optional<Region> toRegion = regionManager.highestRegion(event.getTo());
         if (isBlockedByCombatExitDelay(player, fromRegion, toRegion)) {
+            event.setCancelled(true);
+            return;
+        }
+        if (player.isGliding() && !allowed(event.getTo(), Flag.ELYTRA)) {
+            player.setGliding(false);
             event.setCancelled(true);
             return;
         }
