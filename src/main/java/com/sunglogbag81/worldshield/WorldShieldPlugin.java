@@ -18,6 +18,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Vehicle;
@@ -156,6 +157,10 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (isOwnEnderPearlDamage(event)) {
+            return;
+        }
+
         Entity attackerEntity = damagingEntity(event.getDamager());
         if (attackerEntity != null && isCrossRegionDamageBlocked(attackerEntity, event.getEntity())) {
             event.setCancelled(true);
@@ -1066,6 +1071,19 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         } catch (IOException e) {
             getLogger().warning("Failed to save logout regions: " + e.getMessage());
         }
+    }
+
+    private boolean isOwnEnderPearlDamage(EntityDamageByEntityEvent event) {
+        if (event.getDamager().getType() != EntityType.ENDER_PEARL) {
+            return false;
+        }
+        if (!(event.getEntity() instanceof Player victim)) {
+            return false;
+        }
+        if (!(event.getDamager() instanceof org.bukkit.entity.Projectile projectile)) {
+            return false;
+        }
+        return projectile.getShooter() instanceof Player shooter && shooter.getUniqueId().equals(victim.getUniqueId());
     }
 
     private boolean isCrossRegionDamageBlocked(Entity attacker, Entity victim) {
