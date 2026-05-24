@@ -30,6 +30,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
+import org.bukkit.event.world.PortalCreateEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
@@ -156,7 +157,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         Entity attackerEntity = damagingEntity(event.getDamager());
-        if (attackerEntity != null && isCrossRegionDamage(attackerEntity.getLocation(), event.getEntity().getLocation())) {
+        if (attackerEntity != null && isCrossRegionDamageBlocked(attackerEntity, event.getEntity())) {
             event.setCancelled(true);
             return;
         }
@@ -286,12 +287,18 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEnderPearl(PlayerTeleportEvent event) {
-        if (event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL
-                && (!allowed(event.getFrom(), Flag.ENDERPEARL) || !allowed(event.getTo(), Flag.ENDERPEARL))) {
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL && enderPearlBlocked(event.getFrom(), event.getTo())) {
             event.setCancelled(true);
             return;
         }
         clearMobTargetsOnProtectedEntry(event.getPlayer(), event.getFrom(), event.getTo());
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPortalCreate(PortalCreateEvent event) {
+        if (event.getBlocks().stream().anyMatch(blockState -> !allowed(blockState.getLocation(), Flag.PORTAL_CREATE))) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -616,7 +623,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args[1].equalsIgnoreCase("global")) {
             flag = Flag.fromKey(args[2]);
             if (flag.isEmpty() || args.length < 4) return invalidFlag(sender);
-            boolean value = Boolean.parseBoolean(args[3]);
+            Boolean value = parseBooleanArg(args[3]);
+            if (value == null) return invalidBoolean(sender);
             getConfig().set("global." + flag.get().key(), value);
             saveConfig();
             globalFlags.put(flag.get(), value);
@@ -632,7 +640,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
                 msg(sender, ChatColor.RED + "구역을 찾지 못했습니다.");
                 return true;
             }
-            Boolean value = args[4].equalsIgnoreCase("unset") ? null : Boolean.parseBoolean(args[4]);
+            Boolean value = args[4].equalsIgnoreCase("unset") ? null : parseBooleanArg(args[4]);
+            if (value == null && !args[4].equalsIgnoreCase("unset")) return invalidBoolean(sender);
             region.get().setFlag(flag.get(), value);
             try {
                 regionManager.save(region.get());
@@ -663,10 +672,12 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             return true;
         }
         if (args[2].equalsIgnoreCase("spectator")) {
-            region.get().setTitleSpectator(Boolean.parseBoolean(args[3]));
+            Boolean value = parseBooleanArg(args[3]);
+            if (value == null) return invalidBoolean(sender);
+            region.get().setTitleSpectator(value);
             try {
                 regionManager.save(region.get());
-                msg(sender, "관전모드 타이틀 표시 = " + Boolean.parseBoolean(args[3]));
+                msg(sender, "관전모드 타이틀 표시 = " + value);
             } catch (IOException e) {
                 msg(sender, ChatColor.RED + "저장 실패: " + e.getMessage());
             }
@@ -826,6 +837,17 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return true;
     }
 
+    private boolean invalidBoolean(CommandSender sender) {
+        msg(sender, ChatColor.RED + "값은 true 또는 false만 사용할 수 있습니다.");
+        return true;
+    }
+
+    private Boolean parseBooleanArg(String raw) {
+        if (raw.equalsIgnoreCase("true")) return true;
+        if (raw.equalsIgnoreCase("false")) return false;
+        return null;
+    }
+
     private void openFlagGui(Player player, String target) {
         Inventory inventory = Bukkit.createInventory(null, 18, GUI_TITLE_PREFIX + target);
         for (int i = 0; i < Flag.values().length; i++) {
@@ -960,6 +982,15 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         return !from.world().equals(to.world()) || !from.name().equals(to.name());
     }
 
+    private boolean enderPearlBlocked(Location from, Location to) {
+        if (!allowed(from, Flag.ENDERPEARL) || !allowed(to, Flag.ENDERPEARL)) return true;
+        Optional<Region> fromRegion = regionManager.highestRegion(from);
+        Optional<Region> toRegion = regionManager.highestRegion(to);
+        if (!isRegionChange(fromRegion, toRegion)) return false;
+        return toRegion.isPresent() && !allowed(to, Flag.ENDERPEARL_IN)
+                || fromRegion.isPresent() && !allowed(from, Flag.ENDERPEARL_OUT);
+    }
+
     private void clearMobTargetsOnProtectedEntry(Player player, Location from, Location to) {
         if (to == null || !isRegionChange(regionManager.highestRegion(from), regionManager.highestRegion(to))) return;
         if (!allowed(to, Flag.MOB_TARGET)) clearMobTargets(player);
@@ -1037,10 +1068,19 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         }
     }
 
-    private boolean isCrossRegionDamage(Location attacker, Location victim) {
-        Optional<Region> attackerRegion = regionManager.highestRegion(attacker);
-        Optional<Region> victimRegion = regionManager.highestRegion(victim);
-        return isRegionChange(attackerRegion, victimRegion);
+    private boolean isCrossRegionDamageBlocked(Entity attacker, Entity victim) {
+        Location attackerLocation = attacker.getLocation();
+        Location victimLocation = victim.getLocation();
+        if (!isRegionChange(regionManager.highestRegion(attackerLocation), regionManager.highestRegion(victimLocation))) {
+            return false;
+        }
+        if (asPlayer(attacker) != null && asPlayer(victim) != null) {
+            return !allowed(attackerLocation, Flag.PVP) || !allowed(victimLocation, Flag.PVP);
+        }
+        if (isMobAttack(attacker)) {
+            return !allowed(victimLocation, Flag.MOB_DAMAGE);
+        }
+        return false;
     }
 
     private Entity damagingEntity(Entity entity) {
