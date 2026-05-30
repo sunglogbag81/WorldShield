@@ -907,7 +907,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     private void openFlagGui(Player player, String target) {
-        Inventory inventory = Bukkit.createInventory(null, 18, GUI_TITLE_PREFIX + target);
+        Inventory inventory = Bukkit.createInventory(null, flagGuiSize(), GUI_TITLE_PREFIX + target);
         for (int i = 0; i < Flag.values().length; i++) {
             Flag flag = Flag.values()[i];
             Boolean value = isGlobalTarget(target)
@@ -917,6 +917,11 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         }
         openFlagGuis.put(player.getUniqueId(), target);
         player.openInventory(inventory);
+    }
+
+    private int flagGuiSize() {
+        int rows = Math.max(1, (Flag.values().length + 8) / 9);
+        return Math.min(54, rows * 9);
     }
 
     private ItemStack flagItem(Flag flag, Boolean value) {
