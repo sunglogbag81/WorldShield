@@ -367,6 +367,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     @EventHandler(ignoreCancelled = true)
     public void onToggleGlide(EntityToggleGlideEvent event) {
         if (!event.isGliding() || !(event.getEntity() instanceof Player player)) return;
+        ItemStack chestplate = player.getInventory().getChestplate();
+        if (chestplate == null || chestplate.getType() != Material.ELYTRA) return;
         if (!allowed(player.getLocation(), Flag.ELYTRA)) {
             event.setCancelled(true);
             player.setGliding(false);
