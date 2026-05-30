@@ -37,6 +37,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
+import org.bukkit.event.entity.EntityToggleGlideEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -49,7 +50,6 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
-import org.bukkit.event.player.PlayerToggleGlideEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -365,9 +365,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     }
 
     @EventHandler(ignoreCancelled = true)
-    public void onToggleGlide(PlayerToggleGlideEvent event) {
-        if (!event.isGliding()) return;
-        Player player = event.getPlayer();
+    public void onToggleGlide(EntityToggleGlideEvent event) {
+        if (!event.isGliding() || !(event.getEntity() instanceof Player player)) return;
         if (!allowed(player.getLocation(), Flag.ELYTRA)) {
             event.setCancelled(true);
             player.setGliding(false);
