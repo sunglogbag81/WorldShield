@@ -34,7 +34,6 @@ import org.bukkit.event.block.BlockSpreadEvent;
 import org.bukkit.event.world.PortalCreateEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
@@ -89,8 +88,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     private final Map<UUID, String> openFlagGuis = new HashMap<>();
     private final Map<BlockKey, FireTrace> fireTraces = new HashMap<>();
     private final Map<BlockKey, FireTrace> lavaTraces = new HashMap<>();
-    private static final List<String> GLOBAL_SCOPES = List.of("overworld", "nether", "end");
-    private final Map<String, Map<Flag, Boolean>> globalFlags = new HashMap<>();
+    private final Map<Flag, Boolean> globalFlags = new EnumMap<>(Flag.class);
     private RegionManager regionManager;
     private String prefix;
 
@@ -112,36 +110,17 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         reloadConfig();
         prefix = color(getConfig().getString("messages.prefix", "&6[WorldShield]&r "));
         globalFlags.clear();
-        for (String scope : GLOBAL_SCOPES) {
-            Map<Flag, Boolean> flags = new EnumMap<>(Flag.class);
-            for (Flag flag : Flag.values()) {
-                flags.put(flag, getGlobalConfigValue(scope, flag));
-            }
-            globalFlags.put(scope, flags);
+        for (Flag flag : Flag.values()) {
+            globalFlags.put(flag, getConfig().getBoolean("global." + flag.key(), true));
         }
+        globalFlags.put(Flag.KEEP_INVENTORY, getConfig().getBoolean("global." + Flag.KEEP_INVENTORY.key(), false));
         regionManager = new RegionManager(getDataFolder(), getLogger());
         regionManager.load();
         loadLogoutRegions();
     }
 
-    private boolean getGlobalConfigValue(String scope, Flag flag) {
-        String scopedPath = "global." + scope + "." + flag.key();
-        if (getConfig().contains(scopedPath)) return getConfig().getBoolean(scopedPath);
-        String legacyPath = "global." + flag.key();
-        if (getConfig().contains(legacyPath)) return getConfig().getBoolean(legacyPath);
-        return defaultFlagValue(flag);
-    }
-
-    private boolean defaultFlagValue(Flag flag) {
-        return flag != Flag.KEEP_INVENTORY;
-    }
-
     private boolean allowed(Location location, Flag flag) {
-        return regionManager.regionFlag(location, flag).orElse(globalFlag(location, flag));
-    }
-
-    private boolean globalFlag(Location location, Flag flag) {
-        return globalFlags.getOrDefault(globalScope(location), Map.of()).getOrDefault(flag, defaultFlagValue(flag));
+        return regionManager.regionFlag(location, flag).orElse(globalFlags.getOrDefault(flag, true));
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -205,15 +184,6 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (isMobAttack(event.getDamager()) && !allowed(victim.getLocation(), Flag.MOB_DAMAGE)) {
             event.setCancelled(true);
         }
-    }
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onExplosionDamage(EntityDamageEvent event) {
-        if (event.getCause() != EntityDamageEvent.DamageCause.ENTITY_EXPLOSION
-                && event.getCause() != EntityDamageEvent.DamageCause.BLOCK_EXPLOSION) {
-            return;
-        }
-        if (!allowed(event.getEntity().getLocation(), Flag.EXPLOSION_DAMAGE)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -476,9 +446,8 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         msg(sender, "/ws region delete <name> - 현재 월드 구역 삭제");
         msg(sender, "/ws region list [world] - 구역 목록");
         msg(sender, "/ws region setspawn <name> [world] - 현재 위치를 해당 구역 사망/재접속 스폰으로 설정(구역 밖 가능)");
-        msg(sender, "/ws gui global [overworld|nether|end|world] - 차원별 전체 플래그 GUI");
-        msg(sender, "/ws gui <region> [world] - 구역 플래그 GUI");
-        msg(sender, "/ws flag global <flag> <true|false> [overworld|nether|end|world] - 차원별 전체 설정");
+        msg(sender, "/ws gui <global|region> [world] - 전체/구역 플래그 GUI");
+        msg(sender, "/ws flag global <flag> <true|false> - 전체 월드 설정");
         msg(sender, "/ws flag region <name> <flag> <true|false|unset> [world] - 구역 설정");
         msg(sender, "/ws title <name> <title|subtitle> <text...> [--world <world>] - 입장 타이틀 설정");
         msg(sender, "/ws title <name> spectator <true|false> [world] - 관전모드 입장 타이틀 표시 설정");
@@ -657,8 +626,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (!(sender instanceof Player player)) return true;
         if (args.length < 2) return help(sender);
         if (args[1].equalsIgnoreCase("global")) {
-            String scope = args.length >= 3 ? globalScope(args[2]) : globalScope(player.getWorld());
-            openFlagGui(player, globalTarget(scope));
+            openFlagGui(player, "global");
             return true;
         }
         String world = args.length >= 3 ? args[2] : player.getWorld().getName();
@@ -679,11 +647,10 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             if (flag.isEmpty() || args.length < 4) return invalidFlag(sender);
             Boolean value = parseBooleanArg(args[3]);
             if (value == null) return invalidBoolean(sender);
-            String scope = args.length >= 5 ? globalScope(args[4]) : sender instanceof Player player ? globalScope(player.getWorld()) : "overworld";
-            getConfig().set("global." + scope + "." + flag.get().key(), value);
+            getConfig().set("global." + flag.get().key(), value);
             saveConfig();
-            globalFlags.computeIfAbsent(scope, ignored -> new EnumMap<>(Flag.class)).put(flag.get(), value);
-            msg(sender, "global " + scope + " " + flag.get().key() + " = " + value);
+            globalFlags.put(flag.get(), value);
+            msg(sender, "global " + flag.get().key() + " = " + value);
             return true;
         }
         if (args[1].equalsIgnoreCase("region") && args.length >= 5) {
@@ -782,11 +749,10 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         event.setCancelled(true);
         if (event.getClickedInventory() == null || event.getSlot() < 0 || event.getSlot() >= Flag.values().length) return;
         Flag flag = Flag.values()[event.getSlot()];
-        if (isGlobalTarget(target)) {
-            String scope = globalTargetScope(target);
-            boolean value = !globalFlags.getOrDefault(scope, Map.of()).getOrDefault(flag, defaultFlagValue(flag));
-            globalFlags.computeIfAbsent(scope, ignored -> new EnumMap<>(Flag.class)).put(flag, value);
-            getConfig().set("global." + scope + "." + flag.key(), value);
+        if (target.equals("global")) {
+            boolean value = !globalFlags.getOrDefault(flag, true);
+            globalFlags.put(flag, value);
+            getConfig().set("global." + flag.key(), value);
             saveConfig();
         } else {
             Optional<Region> region = regionFromKey(target);
@@ -812,13 +778,11 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         if (args.length == 2 && args[0].equalsIgnoreCase("poly")) return List.of("undo", "clear", "list");
         if (args.length == 2 && args[0].equalsIgnoreCase("region")) return List.of("create", "delete", "list", "info", "setspawn");
         if (args.length == 4 && args[0].equalsIgnoreCase("region") && args[1].equalsIgnoreCase("create")) return List.of("polygon");
-        if (args.length == 2 && args[0].equalsIgnoreCase("gui")) return sender instanceof Player player ? prefixedGlobalSuggestions(regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList()) : List.of("global");
-        if (args.length == 3 && args[0].equalsIgnoreCase("gui") && args[1].equalsIgnoreCase("global")) return globalScopeSuggestions();
+        if (args.length == 2 && args[0].equalsIgnoreCase("gui")) return sender instanceof Player player ? regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList() : List.of("global");
         if (args.length == 2 && args[0].equalsIgnoreCase("flag")) return List.of("global", "region");
         if ((args.length == 3 && args[1].equalsIgnoreCase("global")) || (args.length == 4 && args[1].equalsIgnoreCase("region"))) {
             return Arrays.stream(Flag.values()).map(Flag::key).toList();
         }
-        if (args.length == 5 && args[0].equalsIgnoreCase("flag") && args[1].equalsIgnoreCase("global")) return globalScopeSuggestions();
         if (args.length == 2 && args[0].equalsIgnoreCase("title")) return sender instanceof Player player ? regionManager.all(player.getWorld().getName()).stream().map(Region::name).toList() : List.of();
         if (args.length == 3 && args[0].equalsIgnoreCase("title")) return List.of("title", "subtitle", "spectator");
         if (args.length == 3 && args[0].equalsIgnoreCase("combat")) return List.of("exit-delay");
@@ -910,9 +874,7 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
         Inventory inventory = Bukkit.createInventory(null, 18, GUI_TITLE_PREFIX + target);
         for (int i = 0; i < Flag.values().length; i++) {
             Flag flag = Flag.values()[i];
-            Boolean value = isGlobalTarget(target)
-                    ? globalFlags.getOrDefault(globalTargetScope(target), Map.of()).getOrDefault(flag, defaultFlagValue(flag))
-                    : regionFromKey(target).map(region -> region.flags().get(flag)).orElse(null);
+            Boolean value = target.equals("global") ? globalFlags.getOrDefault(flag, true) : regionFromKey(target).map(region -> region.flags().get(flag)).orElse(null);
             inventory.setItem(i, flagItem(flag, value));
         }
         openFlagGuis.put(player.getUniqueId(), target);
@@ -934,50 +896,6 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
     private String flagValueText(Boolean value) {
         if (value == null) return ChatColor.GRAY + "unset";
         return value ? ChatColor.GREEN + "ON" : ChatColor.RED + "OFF";
-    }
-
-    private boolean isGlobalTarget(String target) {
-        return target != null && target.startsWith("global:");
-    }
-
-    private String globalTarget(String scope) {
-        return "global:" + scope;
-    }
-
-    private String globalTargetScope(String target) {
-        return globalScope(target.substring("global:".length()));
-    }
-
-    private String globalScope(Location location) {
-        return location.getWorld() == null ? "overworld" : globalScope(location.getWorld());
-    }
-
-    private String globalScope(World world) {
-        return switch (world.getEnvironment()) {
-            case NETHER -> "nether";
-            case THE_END -> "end";
-            default -> "overworld";
-        };
-    }
-
-    private String globalScope(String raw) {
-        String value = raw == null ? "" : raw.toLowerCase(java.util.Locale.ROOT);
-        if (value.equals("overworld") || value.equals("normal") || value.equals("world")) return "overworld";
-        if (value.equals("nether") || value.endsWith("_nether")) return "nether";
-        if (value.equals("end") || value.equals("the_end") || value.endsWith("_the_end")) return "end";
-        World world = Bukkit.getWorld(raw);
-        return world == null ? "overworld" : globalScope(world);
-    }
-
-    private List<String> globalScopeSuggestions() {
-        return GLOBAL_SCOPES;
-    }
-
-    private List<String> prefixedGlobalSuggestions(List<String> regions) {
-        List<String> result = new ArrayList<>();
-        result.add("global");
-        result.addAll(regions);
-        return result;
     }
 
     private Set<BlockKey> findFiresInFront(Player player) {

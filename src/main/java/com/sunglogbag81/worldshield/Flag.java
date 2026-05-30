@@ -6,7 +6,6 @@ import java.util.Optional;
 public enum Flag {
     PVP("pvp"),
     EXPLOSION_BLOCK_DAMAGE("explosion-block-damage"),
-    EXPLOSION_DAMAGE("explosion-damage"),
     BLOCK_PLACE("block-place"),
     BLOCK_BREAK("block-break"),
     KEEP_INVENTORY("keep-inventory"),
