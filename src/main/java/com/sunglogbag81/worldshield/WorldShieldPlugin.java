@@ -11,9 +11,12 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
+import org.bukkit.Tag;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Waterlogged;
+import org.bukkit.block.data.Bisected;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
@@ -309,7 +312,9 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
-        if (!allowed(event.getBlock().getLocation(), Flag.BLOCK_BREAK)) event.setCancelled(true);
+        if (!allowed(event.getBlock().getLocation(), Flag.BLOCK_BREAK) || isProtectedDoorSupportBlock(event.getBlock())) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -973,6 +978,17 @@ public final class WorldShieldPlugin extends JavaPlugin implements Listener, Tab
             return !allowed(clicked.getLocation(), Flag.WATERLOGGING);
         }
         return !allowed(event.getBlock().getLocation(), Flag.BLOCK_BREAK);
+    }
+
+    private boolean isProtectedDoorSupportBlock(Block block) {
+        Block above = block.getRelative(BlockFace.UP);
+        if (!Tag.DOORS.isTagged(above.getType())) {
+            return false;
+        }
+        if (!(above.getBlockData() instanceof Bisected bisected) || bisected.getHalf() != Bisected.Half.BOTTOM) {
+            return false;
+        }
+        return !allowed(above.getLocation(), Flag.BLOCK_BREAK);
     }
 
     private boolean isEnteringBlockedForMob(Location from, Location to) {
